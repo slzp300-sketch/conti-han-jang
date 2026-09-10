@@ -1,0 +1,1017 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>콘티 한 장</title>
+<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* ---------- tokens: olive / khaki ---------- */
+  :root {
+    --bg: #eeede3;          /* khaki paper */
+    --panel: #f8f7f0;       /* lighter card */
+    --panel-2: #f1f0e6;     /* inset field */
+    --ink: #1f2418;
+    --muted: #6b7059;
+    --line: #d6d5c3;
+    --line-strong: #b9b9a2;
+    --accent: #4f6b2f;      /* olive green */
+    --accent-hover: #435c27;
+    --accent-ink: #ffffff;
+    --accent-soft: #e2e9d3;
+    --accent-soft-ink: #3a5121;
+    --danger: #b9432f;
+    --red: #e00000;         /* song-form highlight, prints as-is */
+    --page-shadow: 0 1px 2px rgba(31, 36, 24, .08), 0 8px 28px rgba(31, 36, 24, .12);
+    --radius: 10px;
+    --font-ui: 'Pretendard Variable', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
+    /* 한컴오피스 기본 글꼴(함초롬바탕). 설치돼 있지 않은 PC에서는 바탕 → Noto Serif KR 순서로 대신 씁니다 */
+    --font-form: 'HCR Batang', '함초롬바탕', 'HCR Batang LVT', 'Hancom Batang', 'Batang', '바탕', 'Noto Serif KR', 'Nanum Myeongjo', serif;
+    --font-mono: 'IBM Plex Mono', 'Courier New', monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #1a1c14; --panel: #23261b; --panel-2: #1e2117; --ink: #e8e7d8; --muted: #a3a68d;
+      --line: #383c2c; --line-strong: #4c5140; --accent: #9fb872; --accent-hover: #b3c98a; --accent-ink: #141a09;
+      --accent-soft: #2c3521; --accent-soft-ink: #c9dba6; --danger: #e6786a;
+      --page-shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.5);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #1a1c14; --panel: #23261b; --panel-2: #1e2117; --ink: #e8e7d8; --muted: #a3a68d;
+    --line: #383c2c; --line-strong: #4c5140; --accent: #9fb872; --accent-hover: #b3c98a; --accent-ink: #141a09;
+    --accent-soft: #2c3521; --accent-soft-ink: #c9dba6; --danger: #e6786a;
+    --page-shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.5);
+  }
+
+  * { box-sizing: border-box; }
+  html { height: 100%; }
+  body { margin: 0; min-height: 100%; background: var(--bg); color: var(--ink); font-family: var(--font-ui); font-size: 14px; line-height: 1.5; }
+  button { font: inherit; cursor: pointer; color: inherit; }
+  button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  ::selection { background: var(--accent-soft); }
+
+  /* ---------- top bar ---------- */
+  .topbar {
+    position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 14px;
+    padding-block: 10px; padding-inline: 20px; background: var(--panel); border-bottom: 1px solid var(--line);
+  }
+  .brand { display: flex; align-items: baseline; gap: 8px; margin-right: auto; min-width: 0; }
+  .brand h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -.02em; white-space: nowrap; }
+  .brand h1::before { content: ''; display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: var(--accent); margin-right: 8px; transform: rotate(45deg) translateY(-1px); }
+  .brand small { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .saved { font-size: 12px; color: var(--muted); font-family: var(--font-mono); white-space: nowrap; }
+  .saved:not(:empty)::before { content: '●'; color: var(--accent); font-size: 8px; margin-right: 6px; vertical-align: 1px; }
+  .topbar .btn { padding: 7px 14px; }
+
+  /* ---------- layout ---------- */
+  .app { display: grid; grid-template-columns: minmax(320px, 420px) 1fr; align-items: start; }
+  .editor {
+    position: sticky; top: 53px; max-height: calc(100vh - 53px); overflow-y: auto; overscroll-behavior: contain;
+    background: var(--panel); border-right: 1px solid var(--line); padding-block: 18px 28px; padding-inline: 18px; display: flex; flex-direction: column; gap: 14px;
+  }
+  .editor > * { flex-shrink: 0; }
+  @media (max-width: 860px) {
+    .app { grid-template-columns: 1fr; }
+    .editor { position: static; max-height: none; border-right: 0; border-bottom: 1px solid var(--line); }
+    .brand small { display: none; }
+  }
+
+  /* ---------- fields & buttons ---------- */
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field label, .lbl { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+  input[type=text], textarea, select {
+    font: inherit; color: var(--ink); background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 11px; width: 100%;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  input[type=text]:hover, textarea:hover { border-color: var(--line-strong); }
+  input[type=text]:focus, textarea:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); outline: none; }
+  input[type=text]::placeholder, textarea::placeholder { color: var(--muted); opacity: .7; }
+  textarea { resize: vertical; min-height: 46px; font-family: var(--font-mono); font-size: 14px; line-height: 1.5; }
+
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    border: 1px solid var(--line-strong); background: var(--panel); color: var(--ink); border-radius: 8px; padding: 8px 14px; font-weight: 500;
+    transition: background .15s, border-color .15s, color .15s;
+  }
+  .btn:hover { border-color: var(--ink); background: var(--panel-2); }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+  .btn.soft { background: var(--accent-soft); color: var(--accent-soft-ink); border-color: transparent; }
+  .btn.soft:hover { border-color: var(--accent); }
+  .btn.quiet { color: var(--muted); border-color: transparent; background: transparent; }
+  .btn.quiet:hover { color: var(--danger); border-color: var(--danger); background: transparent; }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .btn.wide { width: 100%; border-style: dashed; background: transparent; color: var(--accent-soft-ink); border-color: var(--line-strong); padding: 11px; }
+  .btn.wide:hover { border-color: var(--accent); background: var(--accent-soft); }
+
+  /* ---------- collapsible boxes (library, help) ---------- */
+  .box { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2); overflow: hidden; }
+  .box > summary { list-style: none; cursor: pointer; padding: 9px 12px; display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 500; user-select: none; }
+  .box > summary::-webkit-details-marker { display: none; }
+  .box > summary:hover { color: var(--ink); }
+  .box > summary .n { font-family: var(--font-mono); letter-spacing: 0; text-transform: none; }
+  .box > summary .chev { margin-left: auto; transition: transform .15s; font-size: 10px; }
+  .box[open] > summary .chev { transform: rotate(180deg); }
+
+  .lib ul { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); max-height: 260px; overflow-y: auto; background: var(--panel); }
+  .lib li { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  .lib li:last-child { border-bottom: 0; }
+  .lib li.cur { background: var(--accent-soft); }
+  .lib .t { grid-column: 1; grid-row: 1; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lib .t .tag { font-size: 10px; color: var(--accent-soft-ink); margin-left: 6px; font-weight: 700; letter-spacing: .06em; }
+  .lib .m { grid-column: 1; grid-row: 2; font-size: 11px; color: var(--muted); font-family: var(--font-mono); }
+  .lib .acts { grid-column: 2; grid-row: 1 / span 2; display: flex; gap: 4px; }
+  .lib .acts button { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font-size: 12px; padding: 3px 8px; }
+  .lib .acts button:hover { color: var(--ink); border-color: var(--ink); }
+  .lib .acts button.d:hover { color: var(--danger); border-color: var(--danger); }
+  .lib .none { padding: 12px; font-size: 12px; color: var(--muted); text-align: center; }
+
+  .help { font-size: 12px; line-height: 1.6; }
+  .help dl { margin: 0; padding: 0 12px 10px; display: grid; grid-template-columns: 7em 1fr; gap: 0; border-top: 1px solid var(--line); background: var(--panel); }
+  .help dt { padding: 8px 0; font-weight: 700; color: var(--ink); border-top: 1px solid var(--line); }
+  .help dd { margin: 0; padding: 8px 0 8px 8px; color: var(--muted); border-top: 1px solid var(--line); }
+  .help dt:first-of-type, .help dd:first-of-type { border-top: 0; }
+  .help .ic { display: inline-block; font-size: 11px; color: var(--accent); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; margin-left: 2px; line-height: 1.4; background: var(--panel-2); }
+  .help code { font-family: var(--font-mono); background: var(--panel-2); border: 1px solid var(--line); padding: 0 4px; border-radius: 3px; color: var(--ink); }
+  .help .r { color: var(--red); font-weight: 700; }
+  .help b { color: var(--ink); font-weight: 600; }
+
+  /* ---------- songs ---------- */
+  .section-head { display: flex; align-items: baseline; justify-content: space-between; margin-top: 4px; }
+  .section-head .lbl { }
+  .section-head .cnt { font-size: 12px; color: var(--muted); font-family: var(--font-mono); }
+  .songs { display: flex; flex-direction: column; gap: 10px; }
+  .song { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; display: flex; flex-direction: column; gap: 10px; background: var(--panel); transition: border-color .15s, box-shadow .15s; }
+  .song:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .song-head { display: flex; align-items: center; gap: 8px; }
+  .song-head .num { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-family: var(--font-mono); font-size: 12px; font-weight: 500; flex-shrink: 0; }
+  .song-head .title-input { flex: 1; padding: 6px 10px; }
+  .song-head .icon { background: transparent; border: 1px solid transparent; color: var(--muted); border-radius: 6px; width: 28px; height: 28px; padding: 0; line-height: 1; }
+  .song-head .icon:hover { color: var(--ink); border-color: var(--line-strong); background: var(--panel-2); }
+  .song-head .icon.del:hover { color: var(--danger); border-color: var(--danger); }
+  .song-head .icon:disabled { opacity: .25; cursor: default; }
+
+  .thumbs { display: flex; flex-wrap: wrap; gap: 8px; }
+  .thumbs:empty { display: none; }
+  .thumb { position: relative; width: 64px; aspect-ratio: 210 / 297; border: 1px solid var(--line-strong); border-radius: 5px; overflow: hidden; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; }
+  .thumb .pick { position: absolute; inset: 0; background: none; border: 0; padding: 0; cursor: pointer; }
+  .thumb .pick:hover { background: rgba(79, 107, 47, .15); }
+  .thumb .x { position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; border-radius: 50%; border: 0; background: rgba(31,36,24,.75); color: #fff; font-size: 12px; line-height: 18px; padding: 0; }
+  .thumb .x:hover { background: var(--danger); }
+  .thumb .page-no { position: absolute; left: 0; bottom: 0; font-size: 10px; font-family: var(--font-mono); background: rgba(31,36,24,.75); color: #fff; padding: 0 4px; }
+  .thumb .kb { position: absolute; top: 2px; left: 2px; font-size: 10px; font-family: var(--font-mono); background: var(--accent); color: var(--accent-ink); padding: 0 4px; border-radius: 3px; }
+  .thumb.active { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .thumb.cropped::after { content: '✂'; position: absolute; right: 2px; bottom: 2px; font-size: 10px; background: rgba(31,36,24,.75); color: #fff; padding: 0 3px; border-radius: 3px; }
+
+  .drop {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    border: 1.5px dashed var(--line-strong); border-radius: 8px; padding: 12px; text-align: center; color: var(--muted); font-size: 12px; cursor: pointer;
+    transition: border-color .15s, color .15s, background .15s; background: var(--panel-2);
+  }
+  .drop::before { content: '＋'; font-size: 14px; color: var(--accent); }
+  .drop:hover, .drop.over { border-color: var(--accent); color: var(--accent-soft-ink); background: var(--accent-soft); }
+  .drop input { display: none; }
+
+  .join { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); cursor: pointer; user-select: none; padding: 6px 8px; border-radius: 6px; border: 1px solid transparent; }
+  .join:hover { background: var(--panel-2); }
+  .join input { accent-color: var(--accent); margin: 0; width: 15px; height: 15px; }
+  .join.on { color: var(--accent-soft-ink); background: var(--accent-soft); }
+
+  .song-tools { display: flex; flex-direction: column; gap: 8px; }
+  .clear-row { display: flex; justify-content: flex-end; }
+
+  /* ---------- crop / key panels ---------- */
+  .crop { border: 1px solid var(--line); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 8px; background: var(--panel-2); }
+  .crop-head { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--muted); }
+  .crop-head b { color: var(--ink); font-weight: 600; }
+  .crop-head button { background: none; border: 1px solid transparent; color: var(--muted); font-size: 15px; line-height: 1; padding: 2px 6px; border-radius: 5px; }
+  .crop-head button:hover { color: var(--ink); border-color: var(--line-strong); background: var(--panel); }
+  .crop-head .tab { margin-right: 4px; }
+  .crop-view { position: relative; background: #fff; border: 1px solid var(--line); overflow: hidden; line-height: 0; border-radius: 4px; }
+  .crop-view img { width: 100%; display: block; }
+  .crop-view .shade { position: absolute; left: 0; right: 0; background: rgba(31,36,24,.55); pointer-events: none; }
+  .crop-view .shade.top { top: 0; border-bottom: 2px solid var(--red); }
+  .crop-view .shade.bot { bottom: 0; border-top: 2px solid var(--red); }
+  .crop-row, .key-zoom { display: grid; grid-template-columns: 4.5em 1fr 3.5em; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+  .crop-row output, .key-zoom output { font-family: var(--font-mono); text-align: right; color: var(--muted); }
+  .crop-row input[type=range], .key-zoom input[type=range] { width: 100%; accent-color: var(--accent); }
+
+  .key-row { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); }
+  .key-row label { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+  .key-row select { padding: 6px 8px; background: var(--panel); }
+  .key-row .arr { padding-top: 16px; color: var(--ink); }
+  .key-acts { display: flex; flex-wrap: wrap; gap: 6px; }
+  .key-acts .btn { padding: 6px 10px; font-size: 13px; }
+  .key-status { font-size: 12px; color: var(--muted); line-height: 1.5; min-height: 1.5em; }
+  .key-hint { font-size: 11px; color: var(--muted); }
+  .key-scroll { overflow: auto; max-height: 70vh; border: 1px solid var(--line); background: #fff; border-radius: 4px; }
+  .key-view { position: relative; width: 100%; line-height: 0; cursor: crosshair; }
+  .key-view img { width: 100%; display: block; }
+  .key-view .boxes { position: absolute; inset: 0; }
+  .cbox { position: absolute; border: 1.5px solid var(--accent); background: rgba(79, 107, 47, .16); padding: 0; cursor: pointer; border-radius: 2px; }
+  .cbox:hover { background: rgba(79, 107, 47, .34); }
+  .cbox.bad { border-color: var(--danger); background: rgba(185, 67, 47, .18); }
+  .cpop { position: absolute; z-index: 5; display: flex; gap: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px; box-shadow: var(--page-shadow); line-height: 1.4; cursor: default; }
+  .cpop input { width: 6em; font: inherit; font-family: var(--font-mono); font-size: 13px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel-2); color: var(--ink); }
+  .cpop button { font-size: 12px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 4px; padding: 2px 8px; }
+  .cpop .rm { color: var(--danger); }
+
+  /* ---------- preview ---------- */
+  .preview { padding-block: 22px 40px; padding-inline: 24px; min-width: 0; }
+  .preview-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0 auto 14px; color: var(--muted); font-size: 12px; font-family: var(--font-mono); }
+  .preview-head #head-title { color: var(--ink); font-family: var(--font-ui); font-weight: 500; font-size: 13px; }
+  .fit { transform-origin: top center; margin: 0 auto; }
+  .pages { display: flex; flex-direction: column; gap: 22px; align-items: center; }
+  .empty { max-width: 210mm; margin: 0 auto; color: var(--muted); text-align: center; padding: 56px 24px; border: 1.5px dashed var(--line-strong); border-radius: var(--radius); background: var(--panel-2); }
+  .empty b { display: block; color: var(--ink); font-size: 15px; margin-bottom: 6px; font-weight: 600; }
+
+  /* The printed page. Sizes in mm so screen and paper match. */
+  .page {
+    width: 210mm; height: 297mm; background: #fff; color: #000; box-shadow: var(--page-shadow);
+    padding: 11mm 11mm 10mm; display: flex; flex-direction: column; gap: 4mm; flex-shrink: 0; overflow: hidden;
+  }
+  .form-bar { display: grid; grid-template-columns: 28mm 1fr; border: 0.6mm solid #000; min-height: 14mm; }
+  .form-bar .lab { display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 12pt; border-right: 0.6mm solid #000; background: #fff; }
+  .form-bar .txt { display: flex; align-items: center; justify-content: center; font-family: var(--font-form); font-weight: 700; font-size: 21pt; text-align: center; padding: 1mm 4mm; line-height: 1.25; letter-spacing: .01em; word-break: keep-all; }
+  .form-bar .txt.long { font-size: 17pt; }
+  .form-bar .txt.longer { font-size: 14pt; }
+  .form-bar .txt .r { color: var(--red); }
+  .form-bar .txt .p { font-size: .62em; font-weight: 600; }
+  .form-bar .txt .ph { color: #aaa; font-weight: 600; font-size: 14pt; }
+  .block { display: flex; flex-direction: column; gap: 4mm; min-height: 0; flex: 1 1 0; }
+  .sheet { flex: 1; min-height: 0; display: flex; align-items: flex-start; justify-content: center; }
+  .sheet img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+  .sheet .placeholder { align-self: stretch; flex: 1; border: 0.4mm dashed #bbb; display: flex; align-items: center; justify-content: center; color: #aaa; font-size: 14pt; }
+
+  @media print {
+    @page { size: A4 portrait; margin: 0; }
+    body { background: #fff; }
+    .topbar, .editor, .preview-head, .empty { display: none !important; }
+    .app { display: block; }
+    .preview { padding: 0; }
+    .fit { transform: none !important; height: auto !important; }
+    .pages { display: block; }
+    .page { box-shadow: none; margin: 0; page-break-after: always; break-after: page; }
+    .page:last-child { page-break-after: auto; break-after: auto; }
+    .sheet .placeholder { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand"><h1>콘티 한 장</h1><small>Covenant 찬양팀</small></div>
+  <span class="saved" id="saved-at"></span>
+  <button class="btn" id="new-conti" title="지금 콘티는 보관함에 남고, 빈 콘티를 새로 엽니다">＋ 새 콘티</button>
+  <button class="btn primary" id="print">인쇄 / PDF 저장</button>
+</header>
+
+<div class="app">
+  <aside class="editor">
+    <div class="field">
+      <label for="conti-title">콘티 이름</label>
+      <input type="text" id="conti-title" placeholder="예: 260830 Covenant 콘티">
+    </div>
+
+    <details class="box lib" id="lib">
+      <summary><span>지난 콘티 보관함</span><span class="n" id="lib-count"></span><span class="chev">▼</span></summary>
+      <ul id="lib-list"></ul>
+    </details>
+
+    <div class="section-head"><span class="lbl">곡 목록</span><span class="cnt" id="song-count"></span></div>
+    <div class="songs" id="songs"></div>
+    <button class="btn wide" id="add-song">＋ 곡 추가</button>
+    <div class="clear-row"><button class="btn quiet" id="clear">이 콘티 비우기</button></div>
+
+    <details class="box help" open>
+      <summary><span>사용법</span><span class="chev">▼</span></summary>
+      <dl>
+        <dt>송폼 쓰기</dt>
+        <dd><code>{C(목소리)}</code>처럼 중괄호로 감싸면 <span class="r">빨간색</span>, 괄호 안 글자는 작게 나옵니다. <code>B*6</code>·<code>C*2</code> 같은 별표는 그대로 나옵니다.</dd>
+        <dt>악보 넣기</dt>
+        <dd>파일 선택·드래그·<code>Ctrl+V</code> 붙여넣기 모두 됩니다. 한 곡에 두 장이면 두 장 다 넣으세요. 같은 송폼이 각 장 위에 붙습니다.</dd>
+        <dt>자르기 <span class="ic">✂</span></dt>
+        <dd>악보 썸네일을 누르면 위·아래를 잘라낼 수 있습니다.</dd>
+        <dt>키 바꾸기 <span class="ic">♯</span></dt>
+        <dd>썸네일을 누르고 ♯를 누르면 악보 속 코드를 찾아 다른 키로 바꿔 줍니다. 틀린 코드는 상자를 눌러 고치고, 놓친 건 빈 곳을 눌러 추가하세요.</dd>
+        <dt>두 곡 한 장</dt>
+        <dd>곡 카드 아래 <b>앞 곡과 같은 페이지에 넣기</b>를 켜면 두 곡이 한 장에 들어가고, 잘라낸 높이에 맞춰 자리를 나눕니다.</dd>
+        <dt>보관함</dt>
+        <dd>고칠 때마다 이 브라우저에 자동 저장됩니다. 주가 바뀌면 <b>＋ 새 콘티</b>, 지난 콘티는 보관함에서 <b>열기</b>하거나 <b>복제</b>해서 고쳐 쓰세요.</dd>
+        <dt>PDF</dt>
+        <dd><b>인쇄 / PDF 저장</b>을 누른 뒤 인쇄 창에서 "PDF로 저장"을 고르면 됩니다.</dd>
+      </dl>
+    </details>
+  </aside>
+
+  <main class="preview">
+    <div class="preview-head">
+      <span id="head-title">미리보기</span>
+      <span id="page-count"></span>
+    </div>
+    <div class="fit" id="fit"><div class="pages" id="pages"></div></div>
+  </main>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  // ---------- storage (IndexedDB: images are too big for localStorage) ----------
+  // STORE 'state' keeps key 'current' (what's open now); STORE 'contis' keeps one record per conti, keyed by id.
+  const DB_NAME = 'conti-maker', STORE = 'state', LIB = 'contis';
+  function openDB() {
+    return new Promise((res, rej) => {
+      try {
+        const rq = indexedDB.open(DB_NAME, 2);
+        rq.onupgradeneeded = () => {
+          const db = rq.result;
+          if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
+          if (!db.objectStoreNames.contains(LIB)) db.createObjectStore(LIB, { keyPath: 'id' });
+        };
+        rq.onsuccess = () => res(rq.result);
+        rq.onerror = () => rej(rq.error);
+      } catch (e) { rej(e); }
+    });
+  }
+  async function loadState() {
+    try {
+      const db = await openDB();
+      return await new Promise((res, rej) => {
+        const rq = db.transaction(STORE).objectStore(STORE).get('current');
+        rq.onsuccess = () => res(rq.result || null);
+        rq.onerror = () => rej(rq.error);
+      });
+    } catch (e) { return null; }
+  }
+  let saveTimer = null;
+  function scheduleSave() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveState, 400);
+  }
+  async function saveState() {
+    try {
+      const db = await openDB();
+      await new Promise((res, rej) => {
+        state.updatedAt = Date.now();
+        const tx = db.transaction([STORE, LIB], 'readwrite');
+        tx.objectStore(STORE).put(state, 'current');
+        if (isEmpty(state)) tx.objectStore(LIB).delete(state.id); else tx.objectStore(LIB).put(state);
+        tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+      });
+      const t = new Date();
+      $('#saved-at').textContent = '저장됨 ' + t.toTimeString().slice(0, 5);
+      renderLibrary();
+    } catch (e) {
+      $('#saved-at').textContent = '저장 안 됨';
+    }
+  }
+
+  async function listContis() {
+    try {
+      const db = await openDB();
+      return await new Promise((res, rej) => {
+        const rq = db.transaction(LIB).objectStore(LIB).getAll();
+        rq.onsuccess = () => res(rq.result || []);
+        rq.onerror = () => rej(rq.error);
+      });
+    } catch (e) { return []; }
+  }
+  async function getConti(id) {
+    try {
+      const db = await openDB();
+      return await new Promise((res, rej) => {
+        const rq = db.transaction(LIB).objectStore(LIB).get(id);
+        rq.onsuccess = () => res(rq.result || null);
+        rq.onerror = () => rej(rq.error);
+      });
+    } catch (e) { return null; }
+  }
+  async function deleteConti(id) {
+    try {
+      const db = await openDB();
+      await new Promise((res, rej) => {
+        const tx = db.transaction(LIB, 'readwrite');
+        tx.objectStore(LIB).delete(id);
+        tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+      });
+    } catch (e) { /* ignore */ }
+  }
+
+  // ---------- state ----------
+  const $ = (s, el = document) => el.querySelector(s);
+  const uid = () => Math.random().toString(36).slice(2, 9);
+  const newSong = () => ({ id: uid(), title: '', form: '', images: [], joinPrev: false });
+  const newConti = () => ({ id: uid(), title: '', songs: [newSong()], updatedAt: Date.now() });
+  let state = newConti();
+  const isEmpty = c => !c.title && c.songs.every(s => !s.title && !s.form.trim() && !s.images.length);
+  const fmtDate = ms => { const d = new Date(ms); return `${String(d.getFullYear()).slice(2)}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`; };
+
+  // ---------- library ----------
+  async function openConti(next) {
+    await saveState();                       // never lose what's open now
+    state = next; upgradeState(state); cropTarget = null;
+    $('#conti-title').value = state.title || '';
+    render(); scheduleSave();
+  }
+  async function renderLibrary() {
+    const list = (await listContis()).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    const ul = $('#lib-list');
+    ul.innerHTML = '';
+    $('#lib-count').textContent = list.length ? list.length + '개' : '';
+    if (!list.length) { ul.innerHTML = '<li class="none">아직 보관된 콘티가 없습니다.</li>'; return; }
+    list.forEach(c => {
+      const cur = c.id === state.id;
+      const li = document.createElement('li');
+      li.className = cur ? 'cur' : '';
+      const pages = c.songs.reduce((n, s, i) => n + Math.max(1, s.images.length) - (s.joinPrev && i ? 1 : 0), 0);
+      li.innerHTML = `
+        <span class="t">${escapeHtml(c.title || '(이름 없음)')}${cur ? '<span class="tag">지금 열림</span>' : ''}</span>
+        <span class="m">${fmtDate(c.updatedAt || 0)} · ${c.songs.length}곡 · ${pages}쪽</span>
+        <span class="acts">
+          ${cur ? '' : '<button data-a="open">열기</button>'}
+          <button data-a="dup" title="이 콘티를 복사해 새 콘티로 엽니다">복제</button>
+          ${cur ? '' : '<button data-a="del" class="d">삭제</button>'}
+        </span>`;
+      li.querySelectorAll('button').forEach(b => b.addEventListener('click', async () => {
+        const a = b.dataset.a;
+        if (a === 'open') { const full = await getConti(c.id); if (full) openConti(full); }
+        if (a === 'dup') {
+          const full = await getConti(c.id); if (!full) return;
+          const copy = JSON.parse(JSON.stringify(full));
+          copy.id = uid(); copy.title = (full.title ? full.title + ' ' : '') + '복사본'; copy.updatedAt = Date.now();
+          copy.songs.forEach(s => s.id = uid());
+          openConti(copy);
+        }
+        if (a === 'del') { if (!confirm(`"${c.title || '(이름 없음)'}" 콘티를 보관함에서 지울까요?`)) return; await deleteConti(c.id); renderLibrary(); }
+      }));
+      ul.appendChild(li);
+    });
+  }
+
+  // ---------- song form rendering ----------
+  // {text} → red ; (text) → smaller  (* is left alone: B*6, C*2 are repeat counts in song forms)
+  function escapeHtml(s) { return s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+  function renderForm(src) {
+    if (!src.trim()) return '<span class="ph">송폼 입력</span>';
+    let html = escapeHtml(src);
+    html = html.replace(/\{([^}]*)\}/g, '<span class="r">$1</span>');
+    html = html.replace(/(\([^)]*\))/g, '<span class="p">$1</span>');
+    return html;
+  }
+  function formSizeClass(src) {
+    const n = src.replace(/[{}]/g, '').length;
+    return n > 52 ? 'longer' : n > 38 ? 'long' : '';
+  }
+
+  // ---------- image intake ----------
+  // image = { src, w, h, top, bottom }  (top/bottom: % of height trimmed away)
+  function fileToImage(file) {
+    return new Promise((res, rej) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        const MAX = 2000;
+        const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+        const ctx = c.getContext('2d');
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        res({ src: c.toDataURL('image/jpeg', 0.9), w: c.width, h: c.height, top: 0, bottom: 0 });
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('이미지를 읽을 수 없습니다')); };
+      img.src = url;
+    });
+  }
+  async function addImages(song, files) {
+    const list = [...files].filter(f => f.type.startsWith('image/'));
+    for (const f of list) {
+      try { song.images.push(await fileToImage(f)); } catch (e) { /* skip unreadable */ }
+    }
+    render(); scheduleSave();
+  }
+  // older saves stored plain data-URL strings — upgrade them in place
+  function upgradeState(s) {
+    s.songs.forEach(song => {
+      song.joinPrev = !!song.joinPrev;
+      song.images = song.images.map(im => typeof im === 'string' ? { src: im, w: 0, h: 0, top: 0, bottom: 0 } : im);
+      song.images.forEach(im => {
+        if (!im.w || !im.h) { const p = new Image(); p.onload = () => { im.w = p.width; im.h = p.height; renderPreview(); scheduleSave(); }; p.src = im.src; }
+      });
+    });
+  }
+
+  // cropped render cache: key → dataURL (built lazily, in memory only)
+  const cropCache = new Map();
+  function croppedSrc(im, onReady) {
+    const t = +im.top || 0, b = +im.bottom || 0;
+    if (!t && !b) return im.src;
+    const key = im.src.length + ':' + im.src.slice(-40) + ':' + t + ':' + b;
+    if (cropCache.has(key)) return cropCache.get(key);
+    const p = new Image();
+    p.onload = () => {
+      const y0 = Math.round(p.height * t / 100), y1 = Math.round(p.height * (1 - b / 100));
+      const c = document.createElement('canvas');
+      c.width = p.width; c.height = Math.max(1, y1 - y0);
+      c.getContext('2d').drawImage(p, 0, y0, p.width, c.height, 0, 0, p.width, c.height);
+      cropCache.set(key, c.toDataURL('image/jpeg', 0.9));
+      onReady && onReady();
+    };
+    p.src = im.src;
+    return null;
+  }
+  const croppedRatio = im => (im.w && im.h) ? (im.h * (1 - ((+im.top || 0) + (+im.bottom || 0)) / 100)) / im.w : 1.4;
+
+  // ---------- crop panel ----------
+  let cropTarget = null; // { songId, index }
+  function buildCropPanel(song, k) {
+    const im = song.images[k];
+    const box = document.createElement('div');
+    box.className = 'crop';
+    box.innerHTML = `
+      <div class="crop-head"><span><b>악보 ${k + 1}</b> 위·아래 잘라내기</span><span><button type="button" class="tab" title="키 바꾸기">♯</button><button type="button" class="close" title="닫기">×</button></span></div>
+      <div class="crop-view"><img src="${im.src}" alt=""><div class="shade top"></div><div class="shade bot"></div></div>
+      <label class="crop-row"><span>위에서</span><input type="range" id="ct-${song.id}-${k}" min="0" max="80" step="0.5" value="${im.top || 0}"><output>${im.top || 0}%</output></label>
+      <label class="crop-row"><span>아래에서</span><input type="range" id="cb-${song.id}-${k}" min="0" max="80" step="0.5" value="${im.bottom || 0}"><output>${im.bottom || 0}%</output></label>
+    `;
+    const shadeT = $('.shade.top', box), shadeB = $('.shade.bot', box);
+    const [rt, rb] = box.querySelectorAll('input[type=range]');
+    const [ot, ob] = box.querySelectorAll('output');
+    function apply(save) {
+      let t = +rt.value, b = +rb.value;
+      if (t + b > 90) { if (this === rb) b = 90 - t; else t = 90 - b; rt.value = t; rb.value = b; }
+      im.top = t; im.bottom = b;
+      shadeT.style.height = t + '%'; shadeB.style.height = b + '%';
+      ot.value = t + '%'; ob.value = b + '%';
+      renderPreview();
+      if (save) scheduleSave();
+    }
+    rt.addEventListener('input', apply); rb.addEventListener('input', apply);
+    rt.addEventListener('change', () => apply.call(rt, true)); rb.addEventListener('change', () => apply.call(rb, true));
+    $('.crop-head .close', box).addEventListener('click', () => { cropTarget = null; renderEditor(); });
+    $('.crop-head .tab', box).addEventListener('click', () => { cropTarget.mode = 'key'; renderEditor(); });
+    shadeT.style.height = (im.top || 0) + '%'; shadeB.style.height = (im.bottom || 0) + '%';
+    return box;
+  }
+
+  // ---------- key change (chord OCR + redraw) ----------
+  const KEYS = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
+  const KEY_LABEL = { Db: 'D♭ / C#', Eb: 'E♭', Gb: 'G♭ / F#', Ab: 'A♭', Bb: 'B♭' };
+  const SHARP_KEYS = new Set(['C', 'G', 'D', 'A', 'E', 'B']);
+  const N_SHARP = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+  const N_FLAT = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
+  const PC = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+  function pitchClass(root) { // 'Bb' 'F#' 'B♭'
+    let n = PC[root[0]]; const acc = root.slice(1);
+    if (acc === 'b' || acc === '♭') n -= 1; else if (acc === '#' || acc === '♯') n += 1;
+    return (n + 12) % 12;
+  }
+  function spell(pc, targetKey) { return (SHARP_KEYS.has(targetKey) ? N_SHARP : N_FLAT)[pc]; }
+  const ROOT_RE = /^([A-G])([#♯b♭]?)/;
+  // "Dm7/F" → { root:'D', rest:'m7', bass:'F' }; anything odd → null
+  function parseChord(text) {
+    const m = text.match(/^([A-G])([#♯b♭]?)([^/]*)(?:\/([A-G])([#♯b♭]?))?$/);
+    if (!m) return null;
+    const rest = m[3] || '';
+    const bare = rest.replace(/[()\s]/g, '');
+    if (!/^(m|min|maj|M|dim|aug|\+|°|-)?(2|4|5|6|7|9|11|13)?(?:(?:sus|add|maj|b|#|♭|♯|\+|-)(2|4|5|6|7|9|11|13)?)*$/.test(bare)) return null;
+    return { root: m[1] + m[2], rest, bass: m[4] ? m[4] + m[5] : null };
+  }
+  function transposeChord(parsed, semis, targetKey) {
+    const root = spell((pitchClass(parsed.root) + semis) % 12, targetKey);
+    const bass = parsed.bass ? spell((pitchClass(parsed.bass) + semis) % 12, targetKey) : null;
+    return { root, bass, text: root + parsed.rest + (bass ? '/' + bass : '') };
+  }
+  const pretty = s => s.replace(/b(?![a-z])/g, '♭');   // Bb → B♭ for drawing (leaves 'b' inside words alone)
+  function guessKey(roots) { // score each key by how many chord roots are diatonic (I ii iii IV V vi)
+    let best = 'C', bestScore = -1;
+    KEYS.forEach(k => {
+      const t = pitchClass(k), dia = new Set([0, 2, 4, 5, 7, 9].map(x => (t + x) % 12));
+      let sc = 0; roots.forEach((r, i) => { const p = pitchClass(r); if (dia.has(p)) sc += 1; if (p === t) sc += (i === roots.length - 1 ? 2 : 0.5); });
+      if (sc > bestScore) { bestScore = sc; best = k; }
+    });
+    return best;
+  }
+
+  // staff lines: rows where ≥30% of pixels are dark, clustered by the sheet's typical line spacing
+  function findStaves(ctx, w, h) {
+    const d = ctx.getImageData(0, 0, w, h).data, rows = [];
+    for (let y = 0; y < h; y++) {
+      let dark = 0;
+      for (let x = 0; x < w; x += 2) if (d[(y * w + x) * 4] < 170) dark++;
+      if (dark > (w / 2) * 0.3) rows.push(y);
+    }
+    const lines = [];
+    for (const y of rows) { const L = lines[lines.length - 1]; if (L && y - L.y1 <= 2) L.y1 = y; else lines.push({ y0: y, y1: y }); }
+    const ys = lines.map(l => (l.y0 + l.y1) / 2), staves = [];
+    const small = ys.slice(1).map((y, i) => y - ys[i]).filter(g => g <= h * 0.025).sort((a, b) => a - b);
+    if (!small.length) return staves;
+    const g = small[small.length >> 1];
+    const near = (a, b) => Math.abs(a - b) < b * 0.4;
+    let cl = [];
+    const flush = () => {
+      if (cl.length >= 3 && cl[cl.length - 1] - cl[0] <= 4.6 * g) staves.push({ top: cl[0], bottom: Math.max(cl[cl.length - 1], cl[0] + 4 * g) });
+      cl = [];
+    };
+    ys.forEach(y => {
+      if (cl.length && (near(y - cl[cl.length - 1], g) || near(y - cl[cl.length - 1], 2 * g))) cl.push(y); else { flush(); cl.push(y); }
+    });
+    flush();
+    return staves;
+}
+
+  let ocrWorker = null;
+  async function getOcrWorker(onStatus) {
+    if (ocrWorker) return ocrWorker;
+    if (!window.Tesseract) {
+      onStatus('문자 인식 도구 불러오는 중…');
+      await new Promise((res, rej) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+        s.onload = res; s.onerror = () => rej(new Error('blocked'));
+        document.head.appendChild(s);
+      });
+    }
+    onStatus('인식 데이터 준비 중… (처음 한 번만)');
+    const w = await Tesseract.createWorker('eng', 1, { logger: m => { if (m.status === 'recognizing text') onStatus(`코드 찾는 중… ${Math.round(m.progress * 100)}%`); } });
+    await w.setParameters({ tessedit_pageseg_mode: '11', tessedit_char_whitelist: 'ABCDEFGmajdisugb#/()0123456789+M' });
+    ocrWorker = w;
+    return w;
+  }
+
+  // → tokens: [{ x0,y0,x1,y1, text, syms:[{t,x0,x1,y0,y1}], parsed }]
+  async function findChords(src, onStatus) {
+    const img = await new Promise((res, rej) => { const p = new Image(); p.onload = () => res(p); p.onerror = rej; p.src = src; });
+    const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+    const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0);
+    const staves = findStaves(ctx, c.width, c.height);
+    const worker = await getOcrWorker(onStatus);
+    const { data } = await worker.recognize(c);
+    const tokens = [];
+    data.words.forEach(w => {
+      // split a word into tokens at wide gaps (tesseract sometimes glues neighbouring chords together)
+      const syms = w.symbols.map(s => ({ t: s.text, x0: s.bbox.x0, x1: s.bbox.x1, y0: s.bbox.y0, y1: s.bbox.y1 }));
+      let cur = [];
+      const flush = () => { if (cur.length) tokens.push(cur); cur = []; };
+      syms.forEach((s, i) => {
+        if (i && s.x0 - syms[i - 1].x1 > (s.y1 - s.y0) * 0.35 && /[A-G]/.test(s.t)) flush();
+        cur.push(s);
+      });
+      flush();
+    });
+    const out = [];
+    tokens.forEach(syms => {
+      const text = syms.map(s => s.t).join('');
+      const parsed = parseChord(text);
+      if (!parsed) return;
+      const y0 = Math.min(...syms.map(s => s.y0)), y1 = Math.max(...syms.map(s => s.y1)), cy = (y0 + y1) / 2;
+      const below = staves.filter(s => s.top > cy).map(s => s.top - cy), above = staves.filter(s => s.bottom < cy).map(s => cy - s.bottom);
+      const dTop = below.length ? Math.min(...below) : Infinity, dBot = above.length ? Math.min(...above) : Infinity;
+      if (staves.length && dBot < dTop) return;              // sits under a staff → lyrics, not a chord
+      const staffH = staves.length ? staves[0].bottom - staves[0].top : c.height * 0.03;
+      if (staves.length && dTop > staffH * 3) return;        // far above any staff → title / header text
+      if (y1 - y0 < 8 || y1 - y0 > c.height * 0.05) return;  // implausible size
+      out.push({ x0: syms[0].x0, x1: syms[syms.length - 1].x1, y0, y1, text, syms, parsed, manual: false });
+    });
+    // drop outliers: chord symbols on one sheet are all about the same height
+    const hs = out.map(t => t.y1 - t.y0).sort((a, b) => a - b), med = hs[hs.length >> 1] || 0;
+    const kept = med ? out.filter(t => { const hh = t.y1 - t.y0; return hh > med * 0.55 && hh < med * 1.6; }) : out;
+    kept.sort((a, b) => (Math.abs(a.y0 - b.y0) < 20 ? a.x0 - b.x0 : a.y0 - b.y0));
+    return { tokens: kept, w: c.width, h: c.height, img };
+  }
+
+  // draw a transposed copy. Root/bass letters are repainted; every other symbol keeps its original pixels.
+  function paintTransposed(job, semis, targetKey) {
+    const { img, w, h, tokens } = job;
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0);
+    const font = px => `${px}px "Times New Roman", "HCR Batang", "Batang", "Noto Serif KR", serif`;
+    tokens.forEach(tk => {
+      if (tk.deleted) return;
+      const parsed = parseChord(tk.text); if (!parsed) return;
+      const tr = transposeChord(parsed, semis, targetKey);
+      const pad = 3, y0 = tk.y0 - pad, y1 = tk.y1 + pad;
+      const capH = tk.syms.length ? Math.max(...tk.syms.filter(s => /[A-G]/.test(s.t)).map(s => s.y1 - s.y0), 0) || (tk.y1 - tk.y0) : (tk.y1 - tk.y0);
+      const px = Math.round(capH / 0.68);
+      ctx.font = font(px); ctx.fillStyle = '#000'; ctx.textBaseline = 'alphabetic';
+      const baseline = tk.syms.length ? Math.max(...tk.syms.filter(s => /[A-G]/.test(s.t)).map(s => s.y1)) || tk.y1 : tk.y1;
+      // build parts: root text, then original pixels of everything up to the slash, then bass text, then the rest
+      const parts = [];
+      let i = 0;
+      const s = tk.syms;
+      if (tk.manual || !s.length) {
+        parts.push({ text: pretty(tr.text) });
+      } else {
+        i = 1; if (s[i] && /[#♯b♭]/.test(s[i].t) && parsed.root.length > 1) i++;   // skip root accidental
+        parts.push({ text: pretty(tr.root) });
+        const slash = s.findIndex((x, k) => k >= i && x.t === '/');
+        if (parsed.bass && slash >= 0) {
+          if (slash > i) parts.push({ keep: [s[i].x0, s[slash - 1].x1] });
+          parts.push({ keep: [s[slash].x0, s[slash].x1] });
+          let j = slash + 1; j++; if (s[j] && /[#♯b♭]/.test(s[j].t) && parsed.bass.length > 1) j++;
+          parts.push({ text: pretty(tr.bass) });
+          if (j < s.length) parts.push({ keep: [s[j].x0, s[s.length - 1].x1] });
+        } else if (i < s.length) {
+          parts.push({ keep: [s[i].x0, s[s.length - 1].x1] });
+        }
+      }
+      // measure, clear, then paint left to right
+      const widths = parts.map(p => p.text ? ctx.measureText(p.text).width : (p.keep[1] - p.keep[0]));
+      const total = widths.reduce((a, b) => a + b, 0);
+      const x0 = tk.x0 - pad, x1 = Math.max(tk.x1 + pad, tk.x0 + total + pad);
+      // keep-parts must be copied from the untouched original, so grab them before clearing
+      const keeps = parts.map(p => p.keep ? ctx.getImageData(p.keep[0], y0, Math.max(1, p.keep[1] - p.keep[0]), y1 - y0) : null);
+      ctx.fillStyle = '#fff'; ctx.fillRect(x0, y0, x1 - x0, y1 - y0); ctx.fillStyle = '#000';
+      let x = tk.x0;
+      parts.forEach((p, k) => {
+        if (p.text) { ctx.fillText(p.text, x, baseline); x += widths[k]; }
+        else { ctx.putImageData(keeps[k], Math.round(x), y0); x += widths[k] + 1; }
+      });
+      tk.drawn = { x0, y0, x1: Math.round(x) + pad, y1, text: tr.text };
+    });
+    return c.toDataURL('image/jpeg', 0.92);
+  }
+
+  function buildKeyPanel(song, k) {
+    const im = song.images[k];
+    const base = im.orig || im.src;
+    const box = document.createElement('div');
+    box.className = 'crop keyp';
+    const keyOpts = sel => KEYS.map(x => `<option value="${x}" ${x === sel ? 'selected' : ''}>${KEY_LABEL[x] || x}</option>`).join('');
+    box.innerHTML = `
+      <div class="crop-head"><span><b>악보 ${k + 1}</b> 키 바꾸기</span><span><button type="button" class="tab" title="자르기로">✂</button><button type="button" class="close" title="닫기">×</button></span></div>
+      <div class="key-row">
+        <label>원래 키 <select id="kf-${song.id}-${k}">${keyOpts(im.keyFrom || 'C')}</select></label>
+        <span class="arr">→</span>
+        <label>바꿀 키 <select id="kt-${song.id}-${k}">${keyOpts(im.keyTo || 'D')}</select></label>
+      </div>
+      <div class="key-acts">
+        <button type="button" class="btn find">1. 코드 찾기</button>
+        <button type="button" class="btn primary apply" disabled>2. 바꿔서 적용</button>
+        ${im.orig ? '<button type="button" class="btn quiet revert">원래대로</button>' : ''}
+      </div>
+      <div class="key-status">${im.orig ? `지금 ${KEY_LABEL[im.keyFrom] || im.keyFrom} → ${KEY_LABEL[im.keyTo] || im.keyTo} 로 바뀐 상태입니다. 다시 바꾸려면 코드를 다시 찾으세요.` : '악보에서 코드를 찾은 뒤, 틀린 건 눌러서 고치고 적용하세요.'}</div>
+      <label class="key-zoom"><span>확대</span><input type="range" id="kz-${song.id}-${k}" min="100" max="400" step="10" value="100"><output>100%</output></label>
+      <div class="key-scroll"><div class="key-view"><img src="${base}" alt=""><div class="boxes"></div></div></div>
+      <div class="key-hint">코드 상자를 누르면 고치거나 지울 수 있고, 빈 곳을 누르면 코드를 추가합니다.</div>
+    `;
+    const status = $('.key-status', box), view = $('.key-view', box), boxes = $('.boxes', box);
+    const selF = $('select', box), selT = box.querySelectorAll('select')[1];
+    const btnFind = $('.find', box), btnApply = $('.apply', box);
+    let job = null;
+
+    const zoom = $('.key-zoom input', box);
+    zoom.addEventListener('input', () => { view.style.width = zoom.value + '%'; $('.key-zoom output', box).value = zoom.value + '%'; });
+    const semis = () => (pitchClass(selT.value) - pitchClass(selF.value) + 12) % 12;
+    function drawBoxes() {
+      boxes.innerHTML = '';
+      if (!job) return;
+      job.tokens.forEach((tk, idx) => {
+        if (tk.deleted) return;
+        const parsed = parseChord(tk.text);
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'cbox' + (parsed ? '' : ' bad');
+        b.style.left = (tk.x0 / job.w * 100) + '%'; b.style.top = (tk.y0 / job.h * 100) + '%';
+        b.style.width = ((tk.x1 - tk.x0) / job.w * 100) + '%'; b.style.height = ((tk.y1 - tk.y0) / job.h * 100) + '%';
+        b.title = tk.text + (parsed ? ' → ' + transposeChord(parsed, semis(), selT.value).text : ' (읽을 수 없음)');
+        b.addEventListener('click', e => { e.stopPropagation(); openEdit(tk, b); });
+        boxes.appendChild(b);
+      });
+    }
+    function openEdit(tk, anchor) {
+      $('.cpop', box)?.remove();
+      const pop = document.createElement('div');
+      pop.className = 'cpop';
+      pop.innerHTML = `<input type="text" value="${escapeHtml(tk.text)}" aria-label="코드"><button type="button" class="ok">확인</button><button type="button" class="rm">지우기</button>`;
+      pop.style.left = anchor.style.left; pop.style.top = `calc(${anchor.style.top} + ${anchor.style.height})`;
+      boxes.appendChild(pop);
+      const inp = $('input', pop); inp.focus(); inp.select();
+      const commit = () => { const v = inp.value.trim(); if (v !== tk.text) { tk.text = v; tk.manual = true; } pop.remove(); drawBoxes(); };
+      $('.ok', pop).addEventListener('click', commit);
+      inp.addEventListener('keydown', e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') pop.remove(); });
+      $('.rm', pop).addEventListener('click', () => { tk.deleted = true; pop.remove(); drawBoxes(); });
+    }
+    view.addEventListener('click', e => {
+      if (!job || e.target.closest('.cpop')) return;
+      if ($('.cpop', box)) { $('.cpop', box).remove(); return; }
+      const r = view.getBoundingClientRect();
+      const x = (e.clientX - r.left) / r.width * job.w, y = (e.clientY - r.top) / r.height * job.h;
+      const hs = job.tokens.filter(t => !t.deleted).map(t => t.y1 - t.y0);
+      const hgt = hs.length ? hs.sort((a, b) => a - b)[hs.length >> 1] : Math.round(job.h * 0.012);
+      const tk = { x0: Math.round(x), y0: Math.round(y - hgt / 2), x1: Math.round(x + hgt * 1.6), y1: Math.round(y + hgt / 2), text: 'C', syms: [], parsed: null, manual: true };
+      job.tokens.push(tk); drawBoxes();
+      const last = boxes.querySelectorAll('.cbox'); openEdit(tk, last[last.length - 1]);
+    });
+    [selF, selT].forEach(s => s.addEventListener('change', drawBoxes));
+
+    btnFind.addEventListener('click', async () => {
+      btnFind.disabled = true; btnApply.disabled = true;
+      try {
+        job = await findChords(base, t => { status.textContent = t; });
+        const roots = job.tokens.map(t => parseChord(t.text)?.root).filter(Boolean);
+        if (roots.length && !im.keyFrom) selF.value = guessKey(roots);
+        status.textContent = job.tokens.length ? `코드 ${job.tokens.length}개를 찾았습니다. 놓친 게 있으면 눌러서 추가하고, 원래 키를 확인한 뒤 적용하세요.` : '코드를 찾지 못했습니다. 빈 곳을 눌러 직접 추가할 수 있습니다.';
+        drawBoxes(); btnApply.disabled = false;
+      } catch (err) {
+        const msg = String(err && err.message || err);
+        status.textContent = (msg === 'blocked' || /fetch|network|worker|load|importScripts|wasm/i.test(msg))
+          ? '이 화면에서는 문자 인식 도구를 불러올 수 없습니다. 배포한 사이트(Vercel 등)에서 열면 됩니다.'
+          : '코드 찾기에 실패했습니다: ' + msg;
+      }
+      btnFind.disabled = false;
+    });
+    btnApply.addEventListener('click', () => {
+      if (!job) return;
+      if (!im.orig) im.orig = im.src;
+      im.keyFrom = selF.value; im.keyTo = selT.value;
+      im.src = paintTransposed(job, semis(), selT.value);
+      cropCache.clear();
+      render(); scheduleSave();
+    });
+    $('.revert', box)?.addEventListener('click', () => {
+      im.src = im.orig; delete im.orig; delete im.keyFrom; delete im.keyTo;
+      cropCache.clear(); render(); scheduleSave();
+    });
+    $('.tab', box).addEventListener('click', () => { cropTarget.mode = 'crop'; renderEditor(); });
+    $('.close', box).addEventListener('click', () => { cropTarget = null; renderEditor(); });
+    return box;
+  }
+
+  // ---------- editor rendering ----------
+  function renderEditor() {
+    const wrap = $('#songs');
+    wrap.innerHTML = '';
+    state.songs.forEach((song, i) => {
+      const el = document.createElement('section');
+      el.className = 'song';
+      el.innerHTML = `
+        <div class="song-head">
+          <span class="num">${i + 1}</span>
+          <input type="text" class="title-input" id="title-${song.id}" placeholder="곡 제목 (선택)" value="${escapeHtml(song.title)}">
+          <button class="icon" data-act="up" title="위로" ${i === 0 ? 'disabled' : ''}>↑</button>
+          <button class="icon" data-act="down" title="아래로" ${i === state.songs.length - 1 ? 'disabled' : ''}>↓</button>
+          <button class="icon del" data-act="del" title="곡 삭제">×</button>
+        </div>
+        <textarea id="form-${song.id}" placeholder="V-C-V-C-B-{C(목소리)}-C*2-O" rows="2">${escapeHtml(song.form)}</textarea>
+        <div class="thumbs"></div>
+        <div class="crop-slot"></div>
+        <label class="drop" id="drop-${song.id}">악보 이미지 넣기 (클릭·드래그·붙여넣기)<input type="file" accept="image/*" multiple></label>
+        ${i > 0 ? `<label class="join ${song.joinPrev ? 'on' : ''}"><input type="checkbox" id="join-${song.id}" ${song.joinPrev ? 'checked' : ''}> 앞 곡과 같은 페이지에 넣기</label>` : ''}
+      `;
+      const thumbs = $('.thumbs', el);
+      song.images.forEach((im, k) => {
+        const t = document.createElement('div');
+        const active = cropTarget && cropTarget.songId === song.id && cropTarget.index === k;
+        t.className = 'thumb' + (active ? ' active' : '') + ((im.top || im.bottom) ? ' cropped' : '');
+        t.innerHTML = `<img src="${im.src}" alt="${i + 1}번 곡 악보 ${k + 1}"><button class="pick" title="자르기 · 키 바꾸기"></button>${im.orig ? `<span class="kb">${escapeHtml(KEY_LABEL[im.keyTo] || im.keyTo || '')}</span>` : ''}<span class="page-no">${k + 1}</span><button class="x" title="이 악보 빼기">×</button>`;
+        $('.pick', t).addEventListener('click', () => { cropTarget = active ? null : { songId: song.id, index: k, mode: 'crop' }; renderEditor(); });
+        $('.x', t).addEventListener('click', () => { song.images.splice(k, 1); cropTarget = null; render(); scheduleSave(); });
+        thumbs.appendChild(t);
+      });
+      if (cropTarget && cropTarget.songId === song.id && song.images[cropTarget.index]) {
+        $('.crop-slot', el).appendChild(cropTarget.mode === 'key' ? buildKeyPanel(song, cropTarget.index) : buildCropPanel(song, cropTarget.index));
+      }
+
+      $('.title-input', el).addEventListener('input', e => { song.title = e.target.value; renderPreview(); scheduleSave(); });
+      $('textarea', el).addEventListener('input', e => { song.form = e.target.value; renderPreview(); scheduleSave(); });
+      $('textarea', el).addEventListener('paste', e => {
+        const files = [...(e.clipboardData?.files || [])];
+        if (files.length) { e.preventDefault(); addImages(song, files); }
+      });
+      const join = $('.join input', el);
+      if (join) join.addEventListener('change', e => { song.joinPrev = e.target.checked; render(); scheduleSave(); });
+      el.querySelectorAll('.song-head .icon').forEach(b => b.addEventListener('click', () => {
+        const act = b.dataset.act;
+        if (act === 'del') { if (song.images.length && !confirm('이 곡을 지울까요?')) return; state.songs.splice(i, 1); }
+        if (act === 'up') { [state.songs[i - 1], state.songs[i]] = [state.songs[i], state.songs[i - 1]]; }
+        if (act === 'down') { [state.songs[i + 1], state.songs[i]] = [state.songs[i], state.songs[i + 1]]; }
+        if (state.songs[0]) state.songs[0].joinPrev = false;
+        cropTarget = null;
+        render(); scheduleSave();
+      }));
+      const drop = $('.drop', el);
+      $('input', drop).addEventListener('change', e => { addImages(song, e.target.files); e.target.value = ''; });
+      drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+      drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+      drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); addImages(song, e.dataTransfer.files); });
+
+      wrap.appendChild(el);
+    });
+  }
+
+  // ---------- page layout ----------
+  // A block is one song form bar + one sheet. A song with N images makes N blocks.
+  // joinPrev puts the song's first block onto the previous song's last page.
+  function buildPages() {
+    const pages = [];
+    state.songs.forEach((song, i) => {
+      const imgs = song.images.length ? song.images : [null];
+      imgs.forEach((im, k) => {
+        const block = { song, i, im, k };
+        if (k === 0 && song.joinPrev && pages.length) pages[pages.length - 1].push(block);
+        else pages.push([block]);
+      });
+    });
+    return pages;
+  }
+
+  function renderPreview() {
+    const wrap = $('#pages');
+    wrap.innerHTML = '';
+    const pages = buildPages();
+    pages.forEach(blocks => {
+      const p = document.createElement('article');
+      p.className = 'page';
+      blocks.forEach(({ song, i, im, k }) => {
+        const b = document.createElement('div');
+        b.className = 'block';
+        const name = escapeHtml(song.title || (i + 1) + '번 곡');
+        // share the page in proportion to each cropped sheet's height
+        b.style.flexGrow = blocks.length > 1 ? (im ? croppedRatio(im) : 1).toFixed(3) : '1';
+        let sheet;
+        if (im) {
+          const src = croppedSrc(im, renderPreview);
+          sheet = src ? `<img src="${src}" alt="${name} 악보 ${k + 1}">` : `<div class="placeholder">${name} 악보 준비 중…</div>`;
+        } else {
+          sheet = `<div class="placeholder">${name} 악보</div>`;
+        }
+        b.innerHTML = `
+          <div class="form-bar">
+            <div class="lab">Song Form</div>
+            <div class="txt ${formSizeClass(song.form)}">${renderForm(song.form)}</div>
+          </div>
+          <div class="sheet">${sheet}</div>`;
+        p.appendChild(b);
+      });
+      wrap.appendChild(p);
+    });
+    if (!state.songs.length) {
+      wrap.innerHTML = '<div class="empty"><b>아직 곡이 없습니다</b>왼쪽에서 곡을 추가하고 송폼과 악보를 넣으면 여기 A4 페이지로 보입니다.</div>';
+    }
+    $('#page-count').textContent = pages.length ? pages.length + '쪽' : '';
+    $('#song-count').textContent = state.songs.length ? state.songs.length + '곡' : '';
+    fitPages();
+    $('#head-title').textContent = state.title || '미리보기';
+    document.title = state.title ? state.title + ' · 콘티 한 장' : '콘티 한 장';
+  }
+  function render() { renderEditor(); renderPreview(); }
+
+  // scale the A4 pages down when the preview column is narrower than a page
+  const PAGE_PX = 210 * 96 / 25.4;
+  function fitPages() {
+    const fit = $('#fit'), pages = $('#pages'), prev = $('.preview');
+    if (!fit || !prev) return;
+    const avail = prev.clientWidth - 48;
+    const s = Math.min(1, avail / (PAGE_PX + 4));
+    if (s >= 1) { fit.style.transform = ''; fit.style.height = ''; fit.style.width = ''; fit.style.marginLeft = ''; fit.style.transformOrigin = ''; return; }
+    fit.style.width = PAGE_PX + 'px'; fit.style.transformOrigin = 'top left';
+    fit.style.transform = `scale(${s})`;
+    fit.style.marginLeft = Math.max(0, (avail - PAGE_PX * s) / 2) + 'px';
+    fit.style.height = pages.scrollHeight * s + 'px';
+  }
+  window.addEventListener('resize', fitPages);
+
+  // ---------- top-level controls ----------
+  $('#conti-title').addEventListener('input', e => { state.title = e.target.value; renderPreview(); scheduleSave(); });
+  $('#add-song').addEventListener('click', () => {
+    state.songs.push(newSong()); render(); scheduleSave();
+    const last = state.songs[state.songs.length - 1];
+    $('#form-' + last.id)?.focus();
+  });
+  $('#print').addEventListener('click', () => window.print());
+  $('#clear').addEventListener('click', () => {
+    if (!confirm('이 콘티의 곡과 악보를 모두 지울까요? (보관함의 다른 콘티는 그대로입니다)')) return;
+    state.songs = [newSong()]; cropTarget = null;
+    render(); scheduleSave();
+  });
+  $('#new-conti').addEventListener('click', async () => {
+    if (isEmpty(state)) { $('#conti-title').focus(); return; }
+    await openConti(newConti());
+    $('#conti-title').focus();
+  });
+
+  // ---------- boot ----------
+  (async () => {
+    const saved = await loadState();
+    if (saved && Array.isArray(saved.songs)) {
+      state = saved;
+      if (!state.id) { state.id = uid(); state.updatedAt = Date.now(); }   // pre-library save
+      upgradeState(state);
+    }
+    if (!state.songs.length) state.songs = [newSong()];
+    $('#conti-title').value = state.title || '';
+    render();
+    renderLibrary();
+    if (saved && !saved.id) scheduleSave();
+  })();
+})();
+</script>
+
+</body>
+</html>
