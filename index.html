@@ -126,7 +126,9 @@
   .lib .acts button { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font-size: 12px; padding: 3px 8px; }
   .lib .acts button:hover { color: var(--ink); border-color: var(--ink); }
   .lib .acts button.d:hover { color: var(--danger); border-color: var(--danger); }
-  .lib .none { padding: 12px; font-size: 12px; color: var(--muted); text-align: center; }
+  /* a row is a grid — the sheet list's first column is a 34px thumbnail slot. An empty-state line
+     left as a grid item lands in that 34px column and reads one letter per line. */
+  .lib .none { display: block; padding: 12px; font-size: 12px; color: var(--muted); text-align: center; }
   /* click a row to unfold what is inside it; click again to fold it away */
   /* font-family/size only — the `font` shorthand here would reset the weight set above */
   .lib .t { background: none; border: 0; padding: 0; font-family: inherit; font-size: inherit; text-align: left; color: var(--ink); cursor: pointer; }
@@ -152,6 +154,10 @@
   .sheet-add { position: relative; display: block; margin-top: 8px; text-align: center; font-size: 12px; cursor: pointer; }
   .sheet-add input { position: absolute; width: 1px; height: 1px; opacity: 0; }
   .sheet-add-status { font-size: 11px; color: var(--muted); margin-top: 6px; min-height: 1.3em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sheet-io { display: flex; justify-content: center; gap: 14px; margin-top: 6px; }
+  .sheet-io > * { position: relative; font-size: 11px; color: var(--muted); background: none; border: 0; padding: 0; text-decoration: underline; cursor: pointer; }
+  .sheet-io > *:hover { color: var(--ink); }
+  .sheet-io input { position: absolute; width: 1px; height: 1px; opacity: 0; }
   .sheet-recent { padding: 0 12px 10px; background: var(--panel); }
   .rc-lab { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
   .rc-row { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
@@ -398,6 +404,10 @@
         </div>
         <div class="cho-bar" id="cho-bar"></div>
         <label class="btn quiet sheet-add">＋ 악보만 골라 보관함에 넣기<input type="file" id="sheet-add" accept="image/*" multiple></label>
+        <div class="sheet-io">
+          <button type="button" id="sheet-export">보관함 내보내기</button>
+          <label>보관함 가져오기<input type="file" id="sheet-import" accept="application/json,.json"></label>
+        </div>
         <div class="sheet-add-status" id="sheet-add-status"></div>
       </div>
       <div class="sheet-recent" id="sheet-recent"></div>
@@ -429,7 +439,9 @@
         <dt>단축키</dt>
         <dd><code>Ctrl+Z</code> 되돌리기 · <code>Ctrl+Shift+Z</code> 다시 실행. 곡 카드의 <b>▾</b> 접기, <b>⧉</b> 복제. 미리보기 위 <b>‹ ›</b> 쪽 넘기기.</dd>
         <dt>보관·PDF</dt>
-        <dd>고칠 때마다 이 브라우저에 자동 저장. 인쇄 창에서 "PDF로 저장"을 고르면 PDF가 됩니다.</dd>
+        <dd>고칠 때마다 <b>이 브라우저에만</b> 자동 저장됩니다. PC와 폰은 각각 따로예요. 인쇄 창에서 "PDF로 저장"을 고르면 PDF가 됩니다.</dd>
+        <dt>보관함 옮기기</dt>
+        <dd>악보 보관함의 <b>내보내기</b>로 파일 하나를 받아, 다른 기기에서 <b>가져오기</b>로 넣습니다. 백업으로도 쓰세요.</dd>
       </dl>
     </details>
   </aside>
@@ -2237,6 +2249,59 @@
     status.textContent = `보관함 ${sheetCache.length}장.`
       + (skipped > 0 ? ` 겹쳐서 합친 것 ${skipped}장.` : '')
       + (bad ? ` 못 읽은 것 ${bad}장.` : '');
+  });
+  // The archive lives in this browser's IndexedDB and nowhere else — a phone and a PC each keep their
+  // own. These two move it across as one file, and double as the backup this app otherwise has none of.
+  $('#sheet-export').addEventListener('click', async () => {
+    const status = $('#sheet-add-status');
+    if (!sheetCache.length) { status.textContent = '보관함이 비어 있습니다.'; return; }
+    // built as Blob parts, not one JSON.stringify: a 100-sheet archive is tens of MB and a single
+    // string that size is what makes a phone give up halfway
+    const parts = [`{"v":1,"at":${Date.now()},"sheets":${JSON.stringify(sheetCache)},"images":{`];
+    let first = true;
+    for (const [n, rec] of sheetCache.entries()) {
+      status.textContent = `${n + 1}/${sheetCache.length} 내보내는 중…`;
+      const src = await getImage(rec.id);
+      if (!src) continue;
+      parts.push((first ? '' : ',') + JSON.stringify(rec.id) + ':' + JSON.stringify(src));
+      first = false;
+    }
+    parts.push('}}');
+    const blob = new Blob(parts, { type: 'application/json' });
+    const d = new Date(), p = n => String(n).padStart(2, '0');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `콘티짜자 악보보관함 ${String(d.getFullYear()).slice(2)}${p(d.getMonth() + 1)}${p(d.getDate())}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    status.textContent = `${sheetCache.length}장을 파일 하나로 내보냈습니다 (${Math.round(blob.size / 1e6)}MB).`;
+  });
+  $('#sheet-import').addEventListener('change', async e => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    const status = $('#sheet-add-status');
+    status.textContent = '파일 읽는 중…';
+    let data;
+    try { data = JSON.parse(await f.text()); } catch (err) { data = null; }
+    if (!data || !Array.isArray(data.sheets)) { status.textContent = '보관함 내보내기 파일이 아닙니다.'; return; }
+    let added = 0, dup = 0;
+    for (const [n, rec] of data.sheets.entries()) {
+      status.textContent = `${n + 1}/${data.sheets.length} 가져오는 중…`;
+      const src = data.images && data.images[rec.id];
+      if (!src || !rec.fp) continue;
+      // same picture, or the same song in the same key, is already here — the archive's own two rules
+      if (sheetCache.some(s => s.fp === rec.fp) || twinOf(rec)) { dup++; continue; }
+      // an id can collide with a sheet this browser made on its own; the picture is what matters
+      const copy = { ...rec, id: sheetCache.some(s => s.id === rec.id) ? uid() : rec.id };
+      await putImage(copy.id, src);
+      await putSheet(copy);
+      added++;
+    }
+    renderSheetLib(); renderSheetSize();
+    status.textContent = `보관함 ${sheetCache.length}장.`
+      + (added ? ` 새로 ${added}장.` : '')
+      + (dup ? ` 이미 있던 것 ${dup}장.` : '');
   });
   $('#sheetlib').addEventListener('toggle', () => { if ($('#sheetlib').open) renderSheetSize(); });
   $('#lib').addEventListener('toggle', () => { if ($('#lib').open) renderLibrary(); });
