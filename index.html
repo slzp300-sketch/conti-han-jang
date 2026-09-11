@@ -196,6 +196,7 @@
   .crop-view .shade.top { top: 0; border-bottom: 2px solid var(--red); }
   .crop-view .shade.bot { bottom: 0; border-top: 2px solid var(--red); }
   .crop-row, .key-zoom { display: grid; grid-template-columns: 4.5em 1fr 3.5em; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+  .crop-note { font-size: 11px; color: var(--muted); line-height: 1.5; margin-top: 2px; min-height: 1.5em; }
   .crop-row output, .key-zoom output { font-family: var(--font-mono); text-align: right; color: var(--muted); }
   .crop-row input[type=range], .key-zoom input[type=range] { width: 100%; accent-color: var(--accent); }
 
@@ -245,9 +246,11 @@
   .form-bar .txt .r { color: var(--red); }
   .form-bar .txt .p { font-size: .62em; font-weight: 600; }
   .form-bar .txt .ph { color: #aaa; font-weight: 600; font-size: 14pt; }
-  .block { display: flex; flex-direction: column; gap: 4mm; min-height: 0; flex: 1 1 0; }
-  .sheet { flex: 1; min-height: 0; display: flex; align-items: flex-start; justify-content: center; }
-  .sheet img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+  /* fitSheets gives each sheet an explicit height so every sheet on a page shares one scale;
+     the flex values below are only what shows before that runs */
+  .block { display: flex; flex-direction: column; gap: 4mm; min-height: 0; flex: 0 0 auto; }
+  .sheet { flex: 1 1 auto; min-height: 0; display: flex; align-items: flex-start; justify-content: center; }
+  .sheet img { max-width: 100%; object-fit: contain; display: block; }
   .sheet .placeholder { align-self: stretch; flex: 1; border: 0.4mm dashed #bbb; display: flex; align-items: center; justify-content: center; color: #aaa; font-size: 14pt; }
 
   @media print {
@@ -298,12 +301,12 @@
         <dd><code>{C(목소리)}</code>처럼 중괄호로 감싸면 <span class="r">빨간색</span>, 괄호 안 글자는 작게 나옵니다. <code>B*6</code>·<code>C*2</code> 같은 별표는 그대로 나옵니다.</dd>
         <dt>악보 넣기</dt>
         <dd>이미지나 <b>PDF</b>를 파일 선택·드래그·<code>Ctrl+V</code>로 넣습니다. PDF는 쪽마다 한 장씩 선명하게 들어가서 키 바꾸기가 가장 잘 됩니다. 한 곡에 두 장이면 두 장 다 넣으세요. 같은 송폼이 각 장 위에 붙습니다.</dd>
-        <dt>자르기 <span class="ic">✂</span></dt>
-        <dd>악보 썸네일을 누르면 위·아래를 잘라낼 수 있습니다.</dd>
+        <dt>자르기 · 크기 <span class="ic">✂</span></dt>
+        <dd>악보 썸네일을 누르면 위·아래를 잘라내고 <b>크기</b>도 줄일 수 있습니다. 패널 아래에 <b>인쇄 폭 몇 %</b>로 들어가는지 나오니, 100%가 될 때까지 잘라내면 페이지를 꽉 채웁니다.</dd>
         <dt>키 바꾸기 <span class="ic">♯</span></dt>
         <dd>썸네일을 누르고 ♯를 누르면 오선 위 코드를 찾아 다른 키로 바꿔 줍니다. <b>원래 키</b>가 맞는지 먼저 확인하세요 — 스캔에서 자주 빠지는 ♭·♯은 그 키에 맞춰 채워 넣고 노란 상자로 표시합니다. 빨간 상자는 못 읽은 것이니 눌러서 고치거나 지우고, 놓친 건 빈 곳을 눌러 추가하세요. 가로 1500px 이상 선명한 이미지일수록 잘 됩니다.</dd>
         <dt>두 곡 한 장</dt>
-        <dd>곡 카드 아래 <b>앞 곡과 같은 페이지에 넣기</b>를 켜면 두 곡이 한 장에 들어가고, 잘라낸 높이에 맞춰 자리를 나눕니다.</dd>
+        <dd>곡 카드 아래 <b>앞 곡과 같은 페이지에 넣기</b>를 켜면 두 곡이 한 장에 들어갑니다. 두 악보는 <b>같은 배율</b>로 그려지니 한쪽만 커 보이지 않습니다. 폭이 100%에 못 미치면 양쪽을 더 잘라내세요 — A4 한 장짜리 악보라면 각각 절반쯤 남기면 꽉 찹니다. 한 곡을 일부러 작게 하려면 그 악보의 <b>크기</b>를 줄이면 나머지가 커집니다.</dd>
         <dt>보관함</dt>
         <dd>고칠 때마다 이 브라우저에 자동 저장됩니다. 주가 바뀌면 <b>＋ 새 콘티</b>, 지난 콘티는 보관함에서 <b>열기</b>하거나 <b>복제</b>해서 고쳐 쓰세요.</dd>
         <dt>PDF</dt>
@@ -483,6 +486,48 @@
   // How wide the form prints depends on the glyphs, not the character count: Korean is double width
   // and the parenthetical is smaller. Measure instead, and take the largest size that stays on one
   // line; below the smallest it wraps, and then it wraps only between sections.
+  // Sheets sharing a page are drawn at ONE scale, so two songs on a page come out the same size.
+  // Each is laid out at the full page width; if the column is then too tall, they all shrink by the
+  // same factor. (The old proportional flex split gave each sheet a different scale, so one song
+  // printed noticeably bigger than the other.) Per-sheet 크기 makes one deliberately smaller.
+  function fitSheets(root) {
+    root.querySelectorAll('.page').forEach(page => {
+      const blocks = [...page.querySelectorAll('.block')];
+      if (!blocks.length) return;
+      const ps = getComputedStyle(page);
+      const W = page.clientWidth - parseFloat(ps.paddingLeft) - parseFloat(ps.paddingRight);
+      const H = page.clientHeight - parseFloat(ps.paddingTop) - parseFloat(ps.paddingBottom);
+      let chrome = (parseFloat(ps.rowGap) || 0) * (blocks.length - 1);
+      const need = blocks.map(b => {
+        chrome += b.querySelector('.form-bar').offsetHeight + (parseFloat(getComputedStyle(b).rowGap) || 0);
+        return (+b.dataset.ratio || 1.4) * (+b.dataset.scale || 1);
+      });
+      const sum = need.reduce((a, n) => a + n, 0) || 1;
+      const k = Math.min(1, (H - chrome) / (W * sum));
+      blocks.forEach((b, i) => {
+        const sheet = b.querySelector('.sheet');
+        const w = W * k * (+b.dataset.scale || 1);
+        sheet.style.height = Math.max(0, W * k * need[i]) + 'px';
+        const img = sheet.querySelector('img');
+        if (img) { img.style.width = w + 'px'; img.style.height = 'auto'; }
+        b.dataset.widthPct = String(Math.round(w / W * 100));
+      });
+    });
+  }
+
+  // tell the open crop panel how big this sheet actually prints, so the user is not guessing
+  function refreshCropNote() {
+    const note = $('.crop .crop-note');
+    if (!note || !cropTarget) return;
+    const b = $(`#pages .block[data-song="${cropTarget.songId}"][data-img="${cropTarget.index}"]`);
+    if (!b) { note.textContent = ''; return; }
+    const pct = +b.dataset.widthPct || 0;
+    const shared = b.parentElement.querySelectorAll('.block').length > 1;
+    note.textContent = pct >= 99
+      ? '인쇄 폭 100% — 페이지를 꽉 채웁니다.'
+      : `인쇄 폭 ${pct}%.` + (shared ? ' 같은 페이지의 악보를 더 잘라내면 둘 다 커집니다.' : ' 위·아래를 더 잘라내면 커집니다.');
+  }
+
   const FORM_PT = [21, 19, 17, 15, 13, 11];
   function fitFormBars(root) {
     root.querySelectorAll('.form-bar .txt').forEach(el => {
@@ -514,7 +559,7 @@
         ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
         ctx.drawImage(img, 0, 0, c.width, c.height);
         URL.revokeObjectURL(url);
-        res({ src: c.toDataURL('image/jpeg', 0.9), w: c.width, h: c.height, top: 0, bottom: 0 });
+        res({ src: c.toDataURL('image/jpeg', 0.9), w: c.width, h: c.height, top: 0, bottom: 0, scale: 1 });
       };
       img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('이미지를 읽을 수 없습니다')); };
       img.src = url;
@@ -556,6 +601,7 @@
       song.joinPrev = !!song.joinPrev;
       song.images = song.images.map(im => typeof im === 'string' ? { src: im, w: 0, h: 0, top: 0, bottom: 0 } : im);
       song.images.forEach(im => {
+        if (im.scale == null) im.scale = 1;   // sheets saved before the size control existed
         if (!im.w || !im.h) { const p = new Image(); p.onload = () => { im.w = p.width; im.h = p.height; renderPreview(); scheduleSave(); }; p.src = im.src; }
       });
     });
@@ -593,24 +639,29 @@
       <div class="crop-view"><img src="${im.src}" alt=""><div class="shade top"></div><div class="shade bot"></div></div>
       <label class="crop-row"><span>위에서</span><input type="range" id="ct-${song.id}-${k}" min="0" max="80" step="0.5" value="${im.top || 0}"><output>${im.top || 0}%</output></label>
       <label class="crop-row"><span>아래에서</span><input type="range" id="cb-${song.id}-${k}" min="0" max="80" step="0.5" value="${im.bottom || 0}"><output>${im.bottom || 0}%</output></label>
+      <label class="crop-row"><span>크기</span><input type="range" id="cs-${song.id}-${k}" min="40" max="100" step="1" value="${Math.round((im.scale == null ? 1 : im.scale) * 100)}"><output>${Math.round((im.scale == null ? 1 : im.scale) * 100)}%</output></label>
+      <div class="crop-note"></div>
     `;
     const shadeT = $('.shade.top', box), shadeB = $('.shade.bot', box);
-    const [rt, rb] = box.querySelectorAll('input[type=range]');
-    const [ot, ob] = box.querySelectorAll('output');
+    const [rt, rb, rs] = box.querySelectorAll('input[type=range]');
+    const [ot, ob, os] = box.querySelectorAll('output');
     function apply(save) {
       let t = +rt.value, b = +rb.value;
       if (t + b > 90) { if (this === rb) b = 90 - t; else t = 90 - b; rt.value = t; rb.value = b; }
-      im.top = t; im.bottom = b;
+      im.top = t; im.bottom = b; im.scale = +rs.value / 100;
       shadeT.style.height = t + '%'; shadeB.style.height = b + '%';
-      ot.value = t + '%'; ob.value = b + '%';
+      ot.value = t + '%'; ob.value = b + '%'; os.value = rs.value + '%';
       renderPreview();
       if (save) scheduleSave();
     }
-    rt.addEventListener('input', apply); rb.addEventListener('input', apply);
-    rt.addEventListener('change', () => apply.call(rt, true)); rb.addEventListener('change', () => apply.call(rb, true));
+    [rt, rb, rs].forEach(r => {
+      r.addEventListener('input', apply);
+      r.addEventListener('change', () => apply.call(r, true));
+    });
     $('.crop-head .close', box).addEventListener('click', () => { cropTarget = null; renderEditor(); });
     $('.crop-head .tab', box).addEventListener('click', () => { cropTarget.mode = 'key'; renderEditor(); });
     shadeT.style.height = (im.top || 0) + '%'; shadeB.style.height = (im.bottom || 0) + '%';
+    setTimeout(refreshCropNote, 0);   // the preview has to lay out before it can be measured
     return box;
   }
 
@@ -1261,8 +1312,10 @@
         const b = document.createElement('div');
         b.className = 'block';
         const name = escapeHtml(song.title || (i + 1) + '번 곡');
-        // share the page in proportion to each cropped sheet's height
-        b.style.flexGrow = blocks.length > 1 ? (im ? croppedRatio(im) : 1).toFixed(3) : '1';
+        // fitSheets reads these to give every sheet on the page one common scale
+        b.dataset.song = song.id; b.dataset.img = k;
+        b.dataset.ratio = (im ? croppedRatio(im) : 1.4).toFixed(4);
+        b.dataset.scale = (im ? (im.scale == null ? 1 : im.scale) : 1).toFixed(3);
         let sheet;
         if (im) {
           const src = croppedSrc(im, renderPreview);
@@ -1286,6 +1339,8 @@
     $('#page-count').textContent = pages.length ? pages.length + '쪽' : '';
     $('#song-count').textContent = state.songs.length ? state.songs.length + '곡' : '';
     fitFormBars(wrap);
+    fitSheets(wrap);
+    refreshCropNote();
     fitPages();
     $('#head-title').textContent = state.title || '미리보기';
     document.title = state.title ? state.title + ' · 콘티 한 장' : '콘티 한 장';
