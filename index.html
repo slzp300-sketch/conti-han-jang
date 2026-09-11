@@ -133,18 +133,23 @@
   .sheet-tools input { width: 100%; padding: 6px 8px; font-size: 12px; }
   .sheets ul { max-height: 320px; }
   .sheets li { grid-template-columns: 34px 1fr auto; gap: 4px 8px; }
-  .sheets .sh-th { grid-column: 1; grid-row: 1 / span 2; width: 34px; height: 44px; object-fit: cover; object-position: top; border: 1px solid var(--line); background: #fff; border-radius: 3px; }
+  .sheets .sh-th { grid-column: 1; grid-row: 1 / span 3; width: 34px; height: 44px; object-fit: cover; object-position: top; border: 1px solid var(--line); background: #fff; border-radius: 3px; }
   .sheets .sh-name { grid-column: 2; grid-row: 1; padding: 4px 6px; font-size: 12px; }
   .sheets .sh-key { grid-column: 2; grid-row: 2; padding: 3px 6px; font-size: 11px; background: var(--panel); }
+  .sheets .sh-form { grid-column: 2 / span 2; grid-row: 3; font-size: 10px; color: var(--muted); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .sheets .acts { grid-column: 3; grid-row: 1 / span 2; align-items: center; }
   .sheets .dup { font-size: 10px; color: var(--danger); border: 1px solid var(--danger); border-radius: 4px; padding: 2px 5px; align-self: center; white-space: nowrap; cursor: help; }
   .from-lib { align-self: flex-start; }
   .sheet-pick .pk-q { width: 100%; padding: 6px 8px; font-size: 12px; margin-bottom: 8px; }
-  .sheet-pick .pk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(74px, 1fr)); gap: 8px; max-height: 260px; overflow-y: auto; }
-  .sheet-pick .pk-item { display: flex; flex-direction: column; gap: 4px; padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; text-align: center; }
+  .sheet-pick .pk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(86px, 1fr)); gap: 8px; max-height: 280px; overflow-y: auto; }
+  .sheet-pick .pk-item { display: flex; flex-direction: column; gap: 4px; padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+  .sheet-pick .pk-use { display: flex; flex-direction: column; gap: 4px; background: none; border: 0; padding: 0; cursor: pointer; text-align: center; }
   .sheet-pick .pk-item:hover { border-color: var(--accent); }
-  .sheet-pick .pk-item img { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; object-position: top; background: #fff; border-radius: 3px; }
-  .sheet-pick .pk-item span { font-size: 10px; color: var(--muted); line-height: 1.3; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .sheet-pick .pk-use img { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; object-position: top; background: #fff; border-radius: 3px; border: 1px solid var(--line); }
+  .sheet-pick .pk-use span { font-size: 10px; color: var(--muted); line-height: 1.3; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .sheet-pick .pk-form { font-size: 10px; padding: 3px 4px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel-2); color: var(--muted); cursor: pointer; }
+  .sheet-pick .pk-form:hover { color: var(--ink); border-color: var(--accent); }
+  .sheet-pick .pk-noform { font-size: 10px; color: var(--line-strong); text-align: center; padding: 3px 0; }
   .sheet-pick .none { grid-column: 1 / -1; font-size: 12px; color: var(--muted); text-align: center; margin: 8px 0; }
 
   .help { font-size: 12px; line-height: 1.6; }
@@ -345,7 +350,7 @@
         <dt>두 곡 한 장</dt>
         <dd>곡 카드 아래 <b>앞 곡과 같은 페이지에 넣기</b>를 켜면 두 곡이 한 장에 들어갑니다. 한 곡에 악보가 여러 장이면, 둘째 장부터는 자르기 패널의 <b>앞 장과 같은 페이지에 넣기</b>로 붙입니다. 두 악보는 <b>같은 배율</b>로 그려지니 한쪽만 커 보이지 않습니다. 폭이 100%에 못 미치면 양쪽을 더 잘라내세요 — A4 한 장짜리 악보라면 각각 절반쯤 남기면 꽉 찹니다. 한 곡을 일부러 작게 하려면 그 악보의 <b>크기</b>를 줄이면 나머지가 커집니다.</dd>
         <dt>악보 보관함</dt>
-        <dd>콘티에 넣은 악보는 <b>원본 그대로 자동으로 보관함에 쌓입니다.</b> 이름은 곡 제목을 따라가고, 키 바꾸기를 하면 원래 키가 붙어 <b>내 구주 예수님 - A</b>처럼 됩니다. 이름과 키는 보관함에서 직접 고칠 수 있고, 키를 바꿔 적용한 악보는 바뀐 키로 한 장 더 쌓입니다. 다음에 콘티를 짤 때는 곡 카드의 <b>＋ 보관함에서 악보 넣기</b>로 골라 넣으면 됩니다.<br><b>제목과 키가 같으면 한 장으로 합쳐집니다.</b> 같은 곡이라도 키가 다르면 따로 남습니다. 키를 안 정한 채 이름만 같으면 <b>이름 겹침</b>으로 표시되는데, 키를 정해 주면 합쳐집니다(다른 키를 실수로 지우지 않으려고 그렇게 뒀습니다).</dd>
+        <dd>콘티에 넣은 악보는 <b>원본 그대로 자동으로 보관함에 쌓입니다.</b> 이름은 곡 제목을 따라가고, 키 바꾸기를 하면 원래 키가 붙어 <b>내 구주 예수님 - A</b>처럼 됩니다. 이름과 키는 보관함에서 직접 고칠 수 있고, 키를 바꿔 적용한 악보는 바뀐 키로 한 장 더 쌓입니다. 그 악보와 같이 쓴 <b>송폼도 함께 보관됩니다.</b><br>다음에 콘티를 짤 때는 곡 카드의 <b>＋ 보관함에서 악보 넣기</b>로 골라 넣습니다. <b>악보와 송폼은 따로 가져옵니다</b> — 그림을 누르면 악보만 들어오고, 아래 <b>송폼 가져오기</b>를 눌러야 송폼이 들어옵니다. 같은 악보를 다른 송폼으로 쓰는 주가 있으니까요. 이미 적어 둔 송폼이 있으면 바꿀지 먼저 물어봅니다.<br><b>제목과 키가 같으면 한 장으로 합쳐집니다.</b> 같은 곡이라도 키가 다르면 따로 남습니다. 키를 안 정한 채 이름만 같으면 <b>이름 겹침</b>으로 표시되는데, 키를 정해 주면 합쳐집니다(다른 키를 실수로 지우지 않으려고 그렇게 뒀습니다).</dd>
         <dt>편하게 쓰기</dt>
         <dd>위쪽 <b>↶ ↷</b>로 되돌리고 다시 실행합니다(<code>Ctrl+Z</code>, <code>Ctrl+Shift+Z</code>). 곡 카드의 <b>▾</b>로 곡을 접어 두면 목록이 짧아지고, <b>모두 접기</b>로 한 번에 접습니다. <b>⧉</b>는 곡을 악보까지 그대로 복제합니다. 미리보기 위의 <b>‹ ›</b>로 쪽을 넘깁니다.</dd>
         <dt>보관함</dt>
@@ -508,7 +513,7 @@
     if (hit) { im.libId = hit.id; return; }
     const rec = {
       id: uid(), fp, src, w: im.w, h: im.h,
-      title: (song.title || '').trim(), key: im.keyFrom || '',
+      title: (song.title || '').trim(), key: im.keyFrom || '', form: song.form || '',
       savedAt: Date.now(), renamed: false,
     };
     const twin = twinOf(rec);
@@ -530,6 +535,7 @@
     const drop = keep === twin ? rec : twin;
     state.songs.forEach(s => s.images.forEach(im => { if (im.libId === drop.id) im.libId = keep.id; }));
     if (drop.renamed) keep.renamed = true;
+    if (drop.form && drop.form !== keep.form) { keep.form = drop.form; putSheet(keep); }   // the later song form wins
     removeSheet(drop.id);
     return keep;
   }
@@ -539,10 +545,16 @@
     let touched = false;
     song.images.forEach(im => {
       const rec = sheetCache.find(s => s.id === im.libId);
-      if (!rec || rec.renamed) return;
-      const title = (song.title || '').trim(), key = im.keyFrom || '';
-      if (rec.title === title && rec.key === key) return;
-      rec.title = title; rec.key = key; putSheet(rec); touched = true;
+      if (!rec) return;
+      let changed = false;
+      // the form follows the song even for a hand-renamed sheet: renaming is about the name
+      if (rec.form !== (song.form || '')) { rec.form = song.form || ''; changed = true; }
+      if (!rec.renamed) {
+        const title = (song.title || '').trim(), key = im.keyFrom || '';
+        if (rec.title !== title || rec.key !== key) { rec.title = title; rec.key = key; changed = true; }
+      }
+      if (!changed) return;
+      putSheet(rec); touched = true;
       const keep = mergeTwin(rec);
       if (keep) im.libId = keep.id;
     });
@@ -555,7 +567,7 @@
     if (sheetCache.some(s => s.fp === fp)) return;
     const rec = {
       id: uid(), fp, src: im.src, w: im.w, h: im.h,
-      title: (song.title || '').trim(), key: im.keyTo || '',
+      title: (song.title || '').trim(), key: im.keyTo || '', form: song.form || '',
       savedAt: Date.now(), renamed: false,
     };
     if (twinOf(rec)) return;   // this song is already archived in that key
@@ -631,6 +643,7 @@
         <img class="sh-th" src="${rec.src}" alt="">
         <input class="sh-name" type="text" value="${escapeHtml(rec.title)}" placeholder="곡 제목" aria-label="곡 제목">
         <select class="sh-key" aria-label="키"><option value="">키 없음</option>${KEYS.map(x => `<option value="${x}" ${x === rec.key ? 'selected' : ''}>${KEY_LABEL[x] || x}</option>`).join('')}</select>
+        <span class="sh-form" title="${escapeHtml(rec.form || '')}">${rec.form ? '송폼 ' + escapeHtml(rec.form) : '송폼 없음'}</span>
         <span class="acts">${dup ? '<span class="dup" title="이름이 같은 악보가 또 있습니다. 키를 정해 주면 하나로 합쳐집니다.">이름 겹침</span>' : ''}<button type="button" class="d" title="이 악보 지우기">삭제</button></span>`;
       const save = () => {
         rec.title = $('.sh-name', li).value.trim();
@@ -664,17 +677,28 @@
         .sort((a, b) => (b.usedAt || b.savedAt || 0) - (a.usedAt || a.savedAt || 0));
       grid.innerHTML = '';
       if (!list.length) { grid.innerHTML = `<p class="none">${sheetCache.length ? '찾는 악보가 없습니다.' : '아직 보관된 악보가 없습니다.'}</p>`; return; }
+      // sheet and song form load separately on purpose: the same sheet often comes back with a
+      // different form, so taking one must never drag the other along
       list.forEach(rec => {
-        const b = document.createElement('button');
-        b.type = 'button'; b.className = 'pk-item';
-        b.innerHTML = `<img src="${rec.src}" alt=""><span>${escapeHtml(sheetName(rec))}</span>`;
-        b.addEventListener('click', () => {
+        const item = document.createElement('div');
+        item.className = 'pk-item';
+        item.innerHTML = `
+          <button type="button" class="pk-use" title="이 악보를 넣습니다"><img src="${rec.src}" alt=""><span>${escapeHtml(sheetName(rec))}</span></button>
+          ${rec.form ? `<button type="button" class="pk-form" title="이 송폼만 가져옵니다&#10;&#10;${escapeHtml(rec.form)}">송폼 가져오기</button>` : '<span class="pk-noform">송폼 없음</span>'}`;
+        $('.pk-use', item).addEventListener('click', () => {
           song.images.push({ src: rec.src, w: rec.w, h: rec.h, top: 0, bottom: 0, scale: 1, joinPrev: false, libId: rec.id });
           rec.usedAt = Date.now(); putSheet(rec);
-          savedFor = null;
+          syncSheetMeta(song);
           render(); scheduleSave();
         });
-        grid.appendChild(b);
+        $('.pk-form', item)?.addEventListener('click', () => {
+          const cur = (song.form || '').trim();
+          if (cur && cur !== rec.form.trim() && !confirm(`지금 송폼을 이걸로 바꿀까요?\n\n${rec.form}`)) return;
+          song.form = rec.form;
+          syncSheetMeta(song);
+          render(); scheduleSave();
+        });
+        grid.appendChild(item);
       });
     };
     q.addEventListener('input', draw);
@@ -1540,7 +1564,7 @@
       $('.from-lib', el).addEventListener('click', () => { savedFor = savedFor === song.id ? null : song.id; cropTarget = null; renderEditor(); });
 
       $('.title-input', el).addEventListener('input', e => { song.title = e.target.value; syncSheetMeta(song); renderPreview(); scheduleSave(); });
-      $('textarea', el).addEventListener('input', e => { song.form = e.target.value; renderPreview(); scheduleSave(); });
+      $('textarea', el).addEventListener('input', e => { song.form = e.target.value; syncSheetMeta(song); renderPreview(); scheduleSave(); });
       $('textarea', el).addEventListener('paste', e => {
         const files = [...(e.clipboardData?.files || [])];
         if (files.length) { e.preventDefault(); addImages(song, files); }
@@ -1732,7 +1756,12 @@
     $('#conti-title').value = state.title || '';
     await loadSheets();
     // sheets already sitting in this conti predate the archive — put them in so nothing is missing
-    state.songs.forEach(song => song.images.forEach(im => archiveSheet(song, im)));
+    state.songs.forEach(song => song.images.forEach(im => {
+      archiveSheet(song, im);
+      // entries archived before song forms were kept: fill the gap without disturbing the rest
+      const rec = sheetCache.find(s => s.id === im.libId);
+      if (rec && rec.form == null && (song.form || '').trim()) { rec.form = song.form; putSheet(rec); }
+    }));
     render();
     renderLibrary();
     renderSheetLib();
