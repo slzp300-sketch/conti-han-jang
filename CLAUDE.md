@@ -1,6 +1,8 @@
-# 콘티 한 장
+# 콘티 짜자
 
 Covenant 청년부 찬양팀이 매주 쓰는 A4 찬양 콘티 편집기다. 서버 없이 `index.html` 한 파일로 돌아가는 정적 사이트다.
+
+앱 이름은 **콘티 짜자**다. 저장소·배포 URL(`conti-han-jang`)과 IndexedDB 이름(`conti-maker`)은 예전 이름 그대로 둔다 — URL을 바꾸면 팀이 쓰던 링크가 끊기고, DB 이름을 바꾸면 저장된 콘티가 전부 사라진다.
 
 - 배포: https://conti-han-jang.vercel.app (Vercel 개인 Hobby 계정 `slzp300-sketch's projects`, **ImDealer 팀 아님**)
 - 저장소: https://github.com/slzp300-sketch/conti-han-jang (`main` push → 자동 배포)

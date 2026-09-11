@@ -1,28 +1,32 @@
-# 콘티 한 장
+# 콘티 짜자
 
-Covenant 찬양팀 콘티 편집 페이지. 서버 없이 `index.html` 하나로 동작하는 정적 사이트입니다.
+Covenant 찬양팀이 매주 쓰는 A4 찬양 콘티 편집기. 서버 없이 `index.html` 하나로 동작하는 정적 사이트입니다.
 
-## 배포 (Vercel + GitHub)
+- 사이트: https://conti-han-jang.vercel.app
+- 저장소: https://github.com/slzp300-sketch/conti-han-jang
 
-1. 이 폴더에서 터미널을 열고:
-   ```
-   git init
-   git add .
-   git commit -m "콘티 한 장 첫 배포"
-   ```
-2. GitHub에서 새 저장소(예: `conti-han-jang`)를 만들고, 안내에 나오는 두 줄을 실행:
-   ```
-   git remote add origin https://github.com/<아이디>/conti-han-jang.git
-   git push -u origin main
-   ```
-   (브랜치 이름이 `master`로 잡히면 `git branch -M main` 먼저)
-3. vercel.com → Add New… → Project → 방금 만든 저장소 Import
-   - Framework Preset: **Other**
-   - Build Command / Output Directory: 비워 두기
-   - Deploy
-4. 이후엔 `index.html`을 바꾸고 `git commit` → `git push` 하면 자동으로 다시 배포됩니다.
+## 쓰는 법
+
+곡마다 송폼을 적고 악보 이미지나 PDF를 넣으면 A4 미리보기가 나옵니다. 그대로 인쇄하거나 PDF로 저장하면 됩니다. 자세한 설명은 사이트 왼쪽 아래 **사용법**에 있습니다.
+
+- 송폼: `{C(목소리)}`처럼 중괄호로 감싸면 빨간색, 괄호 안 글자는 작게 나옵니다.
+- 악보: 이미지·PDF를 파일 선택·드래그·`Ctrl+V`로 넣습니다.
+- 자르기·크기: 썸네일을 눌러 위·아래를 잘라내고 크기를 줄입니다.
+- 키 바꾸기: 오선 위 코드를 찾아 다른 키로 다시 그립니다.
+- 두 곡 한 장, 되돌리기(`Ctrl+Z`), 곡 접기·복제, 쪽 넘기기를 지원합니다.
+
+## 고치고 배포하기
+
+`main`에 push하면 Vercel이 자동으로 다시 배포합니다.
+
+```bash
+git add -A && git commit -m "..." && git push
+```
+
+`배포하기.bat`을 더블클릭해도 같은 일을 합니다.
 
 ## 참고
 
-- 콘티 데이터는 각자 브라우저(IndexedDB)에 저장됩니다. 서버에는 아무것도 남지 않습니다.
-- 키 바꾸기(코드 인식)는 tesseract.js를 CDN에서 불러옵니다. 배포된 사이트에서 동작합니다.
+- 콘티는 각자 브라우저(IndexedDB)에 저장됩니다. 서버에는 아무것도 남지 않고, 기기끼리 공유되지 않습니다.
+- 키 바꾸기와 PDF 넣기는 tesseract.js와 pdf.js를 CDN에서 불러옵니다. 배포된 사이트나 로컬 서버에서 동작합니다(파일을 직접 열면 막힙니다).
+- 구조와 그동안의 결정은 `CLAUDE.md`에, 코드 인식 실험은 `dev/`에 정리돼 있습니다.
