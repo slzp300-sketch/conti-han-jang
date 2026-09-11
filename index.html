@@ -154,6 +154,24 @@
   .sheet-add { position: relative; display: block; margin-top: 8px; text-align: center; font-size: 12px; cursor: pointer; }
   .sheet-add input { position: absolute; width: 1px; height: 1px; opacity: 0; }
   .sheet-add-status { font-size: 11px; color: var(--muted); margin-top: 6px; min-height: 1.3em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* 로그인 칸 — 서버를 붙이지 않았으면 아예 나오지 않는다 */
+  .acct { margin-bottom: 14px; padding: 10px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+  .acct .who { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+  .acct .who b { font-weight: 600; }
+  .acct .who .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: 0 0 auto; }
+  .acct .who button { margin-left: auto; font-size: 11px; color: var(--muted); background: none; border: 0; padding: 0; text-decoration: underline; cursor: pointer; }
+  .acct .who button:hover { color: var(--ink); }
+  .acct form { display: grid; gap: 6px; }
+  .acct .lab { font-size: 12px; font-weight: 600; }
+  .acct .sub { font-size: 11px; color: var(--muted); line-height: 1.5; }
+  .acct input { width: 100%; padding: 6px 8px; font-size: 12px; }
+  .acct .row { display: flex; gap: 6px; }
+  .acct .row .btn { flex: 1; font-size: 12px; padding: 6px; }
+  .acct .msg { font-size: 11px; line-height: 1.5; color: var(--muted); }
+  .acct .msg.bad { color: var(--danger); }
+  .sheet-cloud { font-size: 11px; color: var(--muted); text-align: center; margin-top: 6px; }
+  .sheet-cloud:empty { margin-top: 0; }
+  .sheet-cloud button { font: inherit; color: var(--accent); background: none; border: 0; padding: 0; margin-left: 4px; text-decoration: underline; cursor: pointer; }
   .sheet-io { display: flex; justify-content: center; gap: 14px; margin-top: 6px; }
   .sheet-io > * { position: relative; font-size: 11px; color: var(--muted); background: none; border: 0; padding: 0; text-decoration: underline; cursor: pointer; }
   .sheet-io > *:hover { color: var(--ink); }
@@ -380,6 +398,8 @@
 
 <div class="app">
   <aside class="editor">
+    <div class="acct" id="acct" hidden></div>
+
     <div class="field">
       <label for="conti-title">콘티 이름</label>
       <input type="text" id="conti-title" placeholder="예: 260830 Covenant 콘티">
@@ -408,6 +428,7 @@
           <button type="button" id="sheet-export">보관함 내보내기</button>
           <label>보관함 가져오기<input type="file" id="sheet-import" accept="application/json,.json"></label>
         </div>
+        <div class="sheet-cloud" id="sheet-cloud"></div>
         <div class="sheet-add-status" id="sheet-add-status"></div>
       </div>
       <div class="sheet-recent" id="sheet-recent"></div>
@@ -476,6 +497,69 @@
   // 'contiIndex' is the same idea for the library list: titles and thumbnails, no sheet data.
   const DB_NAME = 'conti-maker', STORE = 'state', LIB = 'contis', SHEETS = 'sheets',
         IMAGES = 'images', CIDX = 'contiIndex';
+
+  // ── 서버 ────────────────────────────────────────────────────────────────
+  // 악보 보관함을 팀이 같이 쓰기 위한 것. 표와 규칙은 server/schema.sql 에 있다.
+  // 두 칸이 비어 있으면 서버 코드는 한 줄도 돌지 않고 앱은 예전 그대로 이 브라우저에만
+  // 저장한다 — 로그인 화면도 나오지 않는다. 인터넷이 없을 때 쓰던 길이 그대로 남는다.
+  const CLOUD = { url: '', anon: '' };
+  const SB_LIB = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0/dist/umd/supabase.js';
+  let sb = null, me = null;
+  const online = () => !!(sb && me);
+
+  const loadScript = src => new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = src; s.onload = res; s.onerror = () => rej(new Error(src));
+    document.head.appendChild(s);
+  });
+
+  async function initCloud() {
+    if (!CLOUD.url || !CLOUD.anon) return;
+    try {
+      await loadScript(SB_LIB);
+      sb = window.supabase.createClient(CLOUD.url, CLOUD.anon);
+      const { data } = await sb.auth.getSession();
+      me = data.session ? data.session.user : null;
+      // 로그인·로그아웃은 이 한 곳에서만 받는다. 다른 탭에서 나가도 여기로 온다.
+      sb.auth.onAuthStateChange((_e, s) => {
+        const was = me && me.id;
+        me = s ? s.user : null;
+        renderAccount();
+        if ((me && me.id) !== was) syncSheets();
+      });
+    } catch (e) { sb = null; }
+  }
+
+  // 서버의 한 줄과 앱이 쓰는 악보 카드는 이름이 다르다. 경계에서만 바꿔 준다.
+  const fromRow = r => ({
+    id: r.id, fp: r.fp, title: r.title || '', key: r.key || '', w: r.w, h: r.h,
+    thumb: r.thumb || '', path: r.path, forms: Array.isArray(r.forms) ? r.forms : [],
+    renamed: !!r.renamed, useCount: r.use_count || 0,
+    savedAt: r.saved_at ? Date.parse(r.saved_at) : Date.now(),
+    usedAt: r.used_at ? Date.parse(r.used_at) : undefined,
+    savedBy: r.saved_by || null,
+  });
+  const toRow = rec => ({
+    id: rec.id, fp: rec.fp, title: rec.title || '', key: rec.key || '',
+    w: rec.w || 0, h: rec.h || 0, thumb: rec.thumb || '', path: rec.path || sheetPath(rec.id),
+    forms: rec.forms || [], renamed: !!rec.renamed, use_count: rec.useCount || 0,
+    saved_at: new Date(rec.savedAt || Date.now()).toISOString(),
+    used_at: rec.usedAt ? new Date(rec.usedAt).toISOString() : null,
+    saved_by: rec.savedBy || (me && me.id) || null,
+  });
+
+  // 파일 보관소에서의 이름은 악보 id 하나로 정해진다. 표의 path 와 올릴 때 쓴 경로가
+  // 어긋나면 지울 때 그림만 남는다.
+  const sheetPath = id => `${id}.jpg`;
+  const dataUrlToBlob = async src => (await fetch(src)).blob();
+  const blobToDataUrl = blob => new Promise(res => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = () => res('');
+    r.readAsDataURL(blob);
+  });
+  // ────────────────────────────────────────────────────────────────────────
+
   function openDB() {
     return new Promise((res, rej) => {
       try {
@@ -535,9 +619,21 @@
         tx.oncomplete = res; tx.onerror = () => rej(tx.error);
       });
     } catch (e) { }
+    if (online()) await cloudPutImage(id, src);
+  }
+  // 원본은 표가 아니라 파일 보관소로 간다. 한 줄에 400KB 짜리 글자를 넣는 표는 금방 무거워진다.
+  async function cloudPutImage(id, src) {
+    try {
+      const blob = await dataUrlToBlob(src);
+      const path = sheetPath(id);
+      const { error } = await sb.storage.from('sheets')
+        .upload(path, blob, { contentType: blob.type || 'image/jpeg', upsert: true });
+      return error ? '' : path;
+    } catch (e) { return ''; }
   }
   async function getImage(id) {
     if (imgMem.has(id)) return imgMem.get(id);
+    let src = '';
     try {
       const db = await openDB();
       const rec = await new Promise((res, rej) => {
@@ -545,11 +641,33 @@
         rq.onsuccess = () => res(rq.result || null);
         rq.onerror = () => rej(rq.error);
       });
-      const src = rec ? rec.src : '';
+      src = rec ? rec.src : '';
+    } catch (e) { src = ''; }
+    // 팀원이 올린 악보는 이 브라우저에 없다. 서버에서 한 번 받아 와 로컬에 남겨 둔다.
+    if (!src && online()) {
+      const rec = sheetCache.find(s => s.id === id);
+      if (rec && rec.path) {
+        try {
+          const { data } = await sb.storage.from('sheets').download(rec.path);
+          if (data) {
+            src = await blobToDataUrl(data);
+            if (src) {
+              const db = await openDB();
+              await new Promise(res => {
+                const tx = db.transaction(IMAGES, 'readwrite');
+                tx.objectStore(IMAGES).put({ id, src });
+                tx.oncomplete = tx.onerror = res;
+              });
+            }
+          }
+        } catch (e) { }
+      }
+    }
+    if (src) {
       if (imgMem.size >= IMG_MEM_MAX) imgMem.delete(imgMem.keys().next().value);
       imgMem.set(id, src);
-      return src;
-    } catch (e) { return ''; }
+    }
+    return src;
   }
   async function removeImage(id) {
     imgMem.delete(id);
@@ -675,6 +793,117 @@
     }
     if (old.length) renderSheetLib();
   }
+  // 서버의 보관함을 이 브라우저에 맞춘다. 서버가 가진 것이 정답이고, 서버에 없는 악보는
+  // 지우지 않고 `local` 표시만 붙여 남긴다 — 로그인 전에 모아 둔 것을 말없이 치우면 안 된다.
+  async function syncSheets() {
+    if (!online()) { renderSheetLib(); renderSheetSize(); return; }
+    let rows;
+    try {
+      const { data, error } = await sb.from('sheets').select('*');
+      if (error) throw error;
+      rows = data.map(fromRow);
+    } catch (e) { setCloudNote('서버에서 악보를 받지 못했습니다.'); return; }
+    const onServer = new Set(rows.map(r => r.fp));
+    const localOnly = sheetCache.filter(s => !onServer.has(s.fp)).map(s => ({ ...s, local: true }));
+    sheetCache = rows.concat(localOnly);
+    for (const rec of rows) await putSheetLocal(rec);
+    renderSheetLib(); renderSheetSize(); renderCloudNote();
+  }
+  // 서버에서 받은 줄을 로컬에 그대로 넣는다. putSheet 을 쓰면 방금 받은 것을 다시 올린다.
+  async function putSheetLocal(rec) {
+    try {
+      const db = await openDB();
+      await new Promise(res => {
+        const tx = db.transaction(SHEETS, 'readwrite');
+        tx.objectStore(SHEETS).put(rec);
+        tx.oncomplete = tx.onerror = res;
+      });
+    } catch (e) { }
+  }
+  // 로그인 전에 이 브라우저에 모아 둔 악보를 팀 보관함으로 올린다. 자동으로 하지 않는 건
+  // 남의 브라우저에 있던 것까지 공용 보관함에 쏟아붓는 일이 되기 때문이다.
+  async function pushLocalSheets() {
+    const mine = sheetCache.filter(s => s.local);
+    if (!mine.length || !online()) return;
+    for (const [n, rec] of mine.entries()) {
+      setCloudNote(`${n + 1}/${mine.length} 올리는 중…`);
+      const src = await getImage(rec.id);
+      if (!src) continue;
+      const path = await cloudPutImage(rec.id, src);
+      if (!path) continue;
+      // 같은 그림을 팀원이 이미 올렸으면 지문이 부딪혀 실패한다. 그건 실패가 아니라
+      // 이미 있다는 뜻이라, 바로 뒤의 syncSheets 가 서버 것으로 정리한다.
+      try { await sb.from('sheets').insert(toRow({ ...rec, path })); } catch (e) { }
+    }
+    await syncSheets();
+    setCloudNote('');
+  }
+  let cloudNote = '';
+  const setCloudNote = t => { cloudNote = t; renderCloudNote(); };
+  function renderCloudNote() {
+    const box = $('#sheet-cloud');
+    if (!box) return;
+    if (cloudNote) { box.innerHTML = escapeHtml(cloudNote); return; }
+    const n = sheetCache.filter(s => s.local).length;
+    box.innerHTML = (online() && n)
+      ? `이 브라우저에만 있는 악보 ${n}장 <button type="button" id="sheet-push">팀 보관함에 올리기</button>`
+      : '';
+    const b = $('#sheet-push');
+    if (b) b.addEventListener('click', pushLocalSheets);
+  }
+
+  function renderAccount() {
+    const box = $('#acct');
+    if (!box) return;
+    if (!sb) { box.hidden = true; return; }      // 서버를 안 붙였으면 로그인 자체가 없다
+    box.hidden = false;
+    if (me) {
+      const who = (me.user_metadata && me.user_metadata.name) || (me.email || '').split('@')[0];
+      box.innerHTML = `<div class="who"><span class="dot"></span><b>${escapeHtml(who)}</b>
+        <button type="button" id="ac-out">로그아웃</button></div>`;
+      $('#ac-out').addEventListener('click', async () => { await sb.auth.signOut(); });
+      return;
+    }
+    box.innerHTML = `
+      <form id="ac-form">
+        <div class="lab">팀 악보 보관함</div>
+        <div class="sub">로그인하면 팀이 모은 악보를 같이 씁니다. 콘티는 각자 것입니다.</div>
+        <input type="email" id="ac-email" placeholder="이메일" autocomplete="email" required>
+        <input type="password" id="ac-pw" placeholder="비밀번호 (6자 이상)" autocomplete="current-password" required minlength="6">
+        <div class="row">
+          <button type="submit" class="btn primary">로그인</button>
+          <button type="button" class="btn" id="ac-join">가입</button>
+        </div>
+        <div class="msg" id="ac-msg"></div>
+      </form>`;
+    const msg = $('#ac-msg');
+    const say = (t, bad) => { msg.textContent = t; msg.classList.toggle('bad', !!bad); };
+    const creds = () => ({ email: $('#ac-email').value.trim(), password: $('#ac-pw').value });
+    $('#ac-form').addEventListener('submit', async e => {
+      e.preventDefault();
+      say('로그인 중…');
+      const { error } = await sb.auth.signInWithPassword(creds());
+      if (error) say(loginError(error), true);
+    });
+    $('#ac-join').addEventListener('click', async () => {
+      const c = creds();
+      if (!c.email || c.password.length < 6) { say('이메일과 6자 이상 비밀번호를 적어 주세요.', true); return; }
+      say('가입 중…');
+      const { data, error } = await sb.auth.signUp(c);
+      if (error) { say(loginError(error), true); return; }
+      // 메일 확인을 켜 두면 여기서 바로 로그인되지 않는다. 그 경우를 말해 줘야 한다.
+      say(data.session ? '가입했습니다.' : '보내 드린 메일에서 주소 확인을 누르면 로그인됩니다.');
+    });
+  }
+  const loginError = e => {
+    const m = (e && e.message || '').toLowerCase();
+    if (m.includes('invalid login')) return '이메일이나 비밀번호가 맞지 않습니다.';
+    if (m.includes('already registered')) return '이미 가입된 이메일입니다. 로그인을 눌러 주세요.';
+    if (m.includes('confirm')) return '메일에서 주소 확인을 먼저 눌러 주세요.';
+    if (m.includes('rate')) return '잠시 뒤에 다시 시도해 주세요.';
+    return e && e.message || '알 수 없는 오류입니다.';
+  };
+
   async function putSheet(rec) {
     const i = sheetCache.findIndex(s => s.id === rec.id);
     if (i >= 0) sheetCache[i] = rec; else sheetCache.push(rec);
@@ -686,8 +915,13 @@
         tx.oncomplete = res; tx.onerror = () => rej(tx.error);
       });
     } catch (e) { /* the conti itself still saves; the archive is a convenience */ }
+    // 로컬을 먼저 쓰고 서버로 올린다. 서버가 죽어 있어도 쓰던 대로 쓰인다.
+    if (online()) {
+      try { await sb.from('sheets').upsert(toRow(rec), { onConflict: 'id' }); } catch (e) { }
+    }
   }
   async function removeSheet(id) {
+    const gone = sheetCache.find(s => s.id === id);
     sheetCache = sheetCache.filter(s => s.id !== id);
     try {
       const db = await openDB();
@@ -697,6 +931,14 @@
         tx.oncomplete = res; tx.onerror = () => rej(tx.error);
       });
     } catch (e) { }
+    // 공용 보관함이라 올린 사람만 지울 수 있다(서버 규칙). 남의 악보를 지우려 하면
+    // 서버가 0줄을 지우고 조용히 끝나므로, 다음 새로고침에 제자리로 돌아온다.
+    if (online()) {
+      try {
+        await sb.from('sheets').delete().eq('id', id);
+        await sb.storage.from('sheets').remove([(gone && gone.path) || sheetPath(id)]);
+      } catch (e) { }
+    }
   }
   // archive a sheet the moment it enters a conti; the same picture is never stored twice
   function archiveSheet(song, im) {
@@ -2376,6 +2618,8 @@
     render();
     renderLibrary();
     renderSheetLib();
+    // 서버는 화면이 다 그려진 다음에 붙인다. 인터넷이 느려도 앱이 늦게 뜨지 않는다.
+    initCloud().then(() => { renderAccount(); return syncSheets(); });
     // the form font arrives from the CDN after first paint, and it decides how wide the form is
     // the form font decides the bar height, which decides how much room the sheets get
     document.fonts?.ready.then(() => { const w = $('#pages'); fitFormBars(w); fitSheets(w); fitPages(); });
