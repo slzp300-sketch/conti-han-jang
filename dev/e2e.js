@@ -1,5 +1,33 @@
-// Drive the real app over a generated low-resolution lead sheet and report what it read.
-// Paste into the console on index.html, or eval it: fetch('/dev/e2e.js').then(r=>r.text()).then(eval)
+// Drive the real app over a sheet and score what it read.
+// On index.html:  fetch('/dev/e2e.js').then(r=>r.text()).then(eval)
+//   await __run(620)                              generated sheet, 620px wide
+//   await __runURL('/samples/a.png', 640, 'ju')   real scan, shrunk to 640px
+//   __score()
+
+// ---- ground truth: the chord row above each staff, in order ----
+window.__truths = {
+  // 주 행하신 위대한 일 (G)
+  ju: [
+    ['G', 'D', 'Em7', 'C'],
+    ['G', 'D', 'Em7', 'C', 'G'],
+    ['D', 'Em7', 'C', 'Em7'],
+    ['C', 'G', 'D', 'Em7'],
+    ['C', 'G', 'D', 'Em7', 'C'],
+    ['G', 'D', 'Em7', 'C'],
+  ],
+  // 내 구주 예수님 / Shout to the Lord (A)
+  nae: [
+    ['A', 'E', 'F#m7', 'E', 'D'],
+    ['A/C#', 'D', 'A/E', 'F#m7', 'G', 'Bm7/F#', 'Esus4', 'E7'],
+    ['A/C#', 'D', 'A/E', 'F#m7', 'G', 'Bm7/F#', 'Esus4', 'E7'],
+    ['A', 'F#m7', 'D', 'Esus4', 'E7', 'A', 'F#m7', 'Dmaj7', 'Esus4', 'E7'],
+    ['F#m7', 'D', 'E', 'F#m', 'E/G#', 'E7'],
+    ['A', 'F#m7', 'D', 'Esus4', 'E7', 'A', 'F#m7', 'Dmaj7', 'Esus4', 'E7'],
+    ['F#m7', 'D', 'E7', 'A', 'D2/A', 'A'],
+  ],
+};
+
+// ---- a generated sheet, for regression checks without any file ----
 window.__sheet = function (W) {
   const BIG_W = 1600, g = 13, FS = 30;
   const SYS = [
@@ -30,61 +58,92 @@ window.__sheet = function (W) {
     x.font = `${FS * 0.72}px "Malgun Gothic", sans-serif`;
     x.fillText(s.ly, g * 6, top + g * 9.2);
   });
-  const f = W / BIG_W;
-  const small = document.createElement('canvas');
-  small.width = W; small.height = Math.round(big.height * f);
-  const sx = small.getContext('2d');
-  sx.imageSmoothingEnabled = true; sx.imageSmoothingQuality = 'high';
-  sx.fillStyle = '#fff'; sx.fillRect(0, 0, small.width, small.height);
-  sx.drawImage(big, 0, 0, small.width, small.height);
-  return small;
+  return shrink(big, W);
 };
 
-window.__run = async function (W) {
-  // the app keeps the conti in IndexedDB, so an earlier sheet survives a reload — drop it first
+function shrink(src, W) {
+  const f = W / src.width;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = Math.round(src.height * f);
+  const x = c.getContext('2d');
+  x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high';
+  x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
+  x.drawImage(src, 0, 0, c.width, c.height);
+  return c;
+}
+
+// the app keeps the conti in IndexedDB, so an earlier sheet survives a reload — drop it first,
+// otherwise every run silently re-reads the first image you ever added
+async function clearSheets() {
   let guard = 0;
-  while (document.querySelector('button.x') && guard++ < 10) {
+  while (document.querySelector('button.x') && guard++ < 12) {
     document.querySelector('button.x').click();
     await new Promise(r => setTimeout(r, 400));
   }
-  const small = window.__sheet(W || 620);
-  const blob = await new Promise(r => small.toBlob(r, 'image/png'));
+}
+async function feed(canvas) {
+  const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
   const input = document.querySelector('.drop input[type=file]');
   const dt = new DataTransfer(); dt.items.add(new File([blob], 'sheet.png', { type: 'image/png' }));
   input.files = dt.files;
   input.dispatchEvent(new Event('change', { bubbles: true }));
-  await new Promise(r => setTimeout(r, 1600));
+  await new Promise(r => setTimeout(r, 1800));
   document.querySelector('button.pick').click();
   await new Promise(r => setTimeout(r, 700));
   [...document.querySelectorAll('button.tab')].find(b => b.title.includes('키 바꾸기')).click();
   await new Promise(r => setTimeout(r, 700));
   document.querySelector('.find').click();
-  return 'running';
+  return { w: canvas.width, h: canvas.height };
+}
+
+window.__run = async function (W) {
+  await clearSheets();
+  return feed(window.__sheet(W || 620));
 };
 
-// score the boxes against the truth, grouping by the vertical band each box sits in
+// load a real scan, shrink it to `W`, and run the app over it
+window.__runURL = async function (url, W, truthKey) {
+  await clearSheets();
+  window.__truth = window.__truths[truthKey] || [];
+  const img = await new Promise((res, rej) => { const p = new Image(); p.onload = () => res(p); p.onerror = rej; p.src = url; });
+  const full = document.createElement('canvas');
+  full.width = img.width; full.height = img.height;
+  full.getContext('2d').drawImage(img, 0, 0);
+  return feed(W && W < img.width ? shrink(full, W) : full);
+};
+
+// score the boxes against the truth, grouping boxes into rows by their vertical position
 window.__score = function () {
   const boxes = [...document.querySelectorAll('.cbox')].map(b => ({
     text: b.title.split(' →')[0].replace(/ \(.*$/, '').trim(),
     flag: b.className.replace('cbox', '').trim(),
     top: +b.style.top.replace('%', ''), left: +b.style.left.replace('%', ''),
-  })).sort((a, b) => a.top - b.top || a.left - b.left);
-  const sys = [];
+  }));
+  boxes.sort((a, b) => a.top - b.top);
+  const rows = [];
   boxes.forEach(b => {
-    const g = sys.find(s => Math.abs(s.top - b.top) < 5);
-    if (g) g.items.push(b); else sys.push({ top: b.top, items: [b] });
+    const g = rows.find(r => Math.abs(r.top - b.top) < 2.5);
+    if (g) { g.items.push(b); g.top = (g.top * (g.items.length - 1) + b.top) / g.items.length; }
+    else rows.push({ top: b.top, items: [b] });
   });
-  const truth = window.__truth;
+  rows.sort((a, b) => a.top - b.top);
+  rows.forEach(r => r.items.sort((a, b) => a.left - b.left));
+  const truth = window.__truth || [];
   let hit = 0, want = 0, extra = 0;
-  const lines = sys.map((s, i) => {
-    const t = truth[i] || [];
-    const pool = s.items.map(b => b.text);
+  const lines = [];
+  const n = Math.max(rows.length, truth.length);
+  for (let i = 0; i < n; i++) {
+    const t = truth[i] || [], got = rows[i] ? rows[i].items.map(b => b.text) : [];
+    const pool = got.slice();
     let h = 0;
     t.forEach(c => { const k = pool.indexOf(c); if (k >= 0) { h++; pool.splice(k, 1); } });
     hit += h; want += t.length; extra += pool.length;
-    return `${i + 1}단  기대 [${t.join(' ')}]  읽음 [${s.items.map(b => b.text + (b.flag ? '*' : '')).join(' ')}]  → ${h}/${t.length}${pool.length ? ' 잘못 ' + pool.join(',') : ''}`;
-  });
-  truth.slice(sys.length).forEach((t, i) => { want += t.length; lines.push(`${sys.length + i + 1}단  기대 [${t.join(' ')}]  읽음 [] → 0/${t.length}`); });
-  return { total: `${hit}/${want} 맞음, 잘못 읽은 상자 ${extra}개`, lines, status: document.querySelector('.key-status')?.textContent };
+    lines.push(`${i + 1}단  기대 [${t.join(' ')}]  읽음 [${got.join(' ')}]  → ${h}/${t.length}${pool.length ? '  잘못: ' + pool.join(',') : ''}`);
+  }
+  return {
+    total: `${hit}/${want} 맞음 (${want ? Math.round(hit / want * 100) : 0}%), 잘못 읽은 상자 ${extra}개`,
+    rows: rows.length, lines,
+    status: document.querySelector('.key-status')?.textContent,
+  };
 };
 'e2e loaded';
