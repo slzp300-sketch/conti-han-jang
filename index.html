@@ -149,6 +149,9 @@
   .lib .g-n { margin-left: auto; font-size: 11px; font-weight: 400; color: var(--muted); font-family: var(--font-mono); }
   .sheet-sort { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 11px; color: var(--muted); }
   .sheet-sort select { padding: 3px 6px; font-size: 11px; background: var(--panel); }
+  .sheet-add { position: relative; display: block; margin-top: 8px; text-align: center; font-size: 12px; cursor: pointer; }
+  .sheet-add input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+  .sheet-add-status { font-size: 11px; color: var(--muted); margin-top: 6px; min-height: 1.3em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .sheet-recent { padding: 0 12px 10px; background: var(--panel); }
   .rc-lab { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
   .rc-row { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
@@ -394,6 +397,8 @@
           <span id="sheet-size"></span>
         </div>
         <div class="cho-bar" id="cho-bar"></div>
+        <label class="btn quiet sheet-add">＋ 악보만 골라 보관함에 넣기<input type="file" id="sheet-add" accept="image/*" multiple></label>
+        <div class="sheet-add-status" id="sheet-add-status"></div>
       </div>
       <div class="sheet-recent" id="sheet-recent"></div>
       <ul id="sheet-list"></ul>
@@ -685,25 +690,28 @@
   function archiveSheet(song, im) {
     // any libId at all means this picture has been through the archive once; if the record is gone
     // the user deleted it on purpose, and re-creating it on the next reload would undo that
-    if (im.libId) return;
-    if (!im.w || !im.h) return;   // dimensions still being probed — archive it once they are known
+    if (im.libId) return Promise.resolve('skip');
+    if (!im.w || !im.h) return Promise.resolve('skip');   // dimensions still being probed
     // the archived picture is the sheet as it came in — `orig` holds it once a key change replaced
     // `src` — so its key is the one it was written in
     const src = im.orig || im.src;
     const fp = sheetFp(src);
     const hit = sheetCache.find(s => s.fp === fp);
-    if (hit) { im.libId = hit.id; return; }
+    if (hit) { im.libId = hit.id; return Promise.resolve('dup'); }
     const rec = {
       id: uid(), fp, w: im.w, h: im.h,
       title: (song.title || '').trim(), key: im.keyFrom || '', forms: [],
       savedAt: Date.now(), renamed: false, useCount: 0, thumb: '',
     };
     const twin = twinOf(rec);
-    if (twin) { im.libId = twin.id; return; }   // already have this song in this key
+    if (twin) { im.libId = twin.id; return Promise.resolve('dup'); }   // this song in this key already
     im.libId = rec.id;
     // the picture goes to its own store; the card keeps only a thumbnail
     putImage(rec.id, src);
-    makeThumb(src).then(t => { rec.thumb = t; putSheet(rec).then(renderSheetLib); });
+    return makeThumb(src).then(t => {
+      rec.thumb = t;
+      return putSheet(rec).then(() => { renderSheetLib(); return 'new'; });
+    });
   }
   // One sheet per title+key. Only when BOTH are filled in — two untitled sheets, or two sheets whose
   // keys nobody has labelled yet, may well be different arrangements, and folding those together
@@ -1331,6 +1339,10 @@
   }
   // A file named "내 구주 예수님 - A.png" carries the song and its key. Use them when the song has
   // no title yet, so a folder of downloaded sheets lands in the archive already named.
+  // some sources hand over a file with no usable type (a generic octet-stream, a drag from an odd
+  // app); the extension is the fallback rather than silently refusing a perfectly good picture
+  const isImageFile = f => f.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp)$/i.test(f.name || '');
+
   function nameFromFile(fileName) {
     const base = (fileName || '').replace(/\.[a-z0-9]+$/i, '').trim();
     const m = base.match(/^(.*?)\s*[-–]\s*([A-G][#b♯♭]?)$/);
@@ -1344,7 +1356,7 @@
       try {
         const meta = nameFromFile(f.name);
         if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) added.push(...await pdfToImages(f, onStatus));
-        else if (f.type.startsWith('image/')) {
+        else if (isImageFile(f)) {
           const im = await fileToImage(f);
           if (meta.key && KEYS.includes(meta.key)) im.keyFrom = meta.key;
           im.fromName = meta.title;
@@ -2198,6 +2210,34 @@
   });
   $('#sheet-q').addEventListener('input', renderSheetLib);
   $('#sheet-sort').addEventListener('change', renderSheetLib);
+  // Put pictures straight into the archive without making a conti out of them. Picking 96 files in
+  // the song card would create 96 songs; this route only files them.
+  $('#sheet-add').addEventListener('change', async e => {
+    const files = [...e.target.files];
+    e.target.value = '';
+    if (!files.length) return;
+    const status = $('#sheet-add-status');
+    const start = sheetCache.length;
+    let tried = 0, bad = 0;
+    for (const [n, f] of files.entries()) {
+      status.textContent = `${n + 1}/${files.length} 넣는 중… ${f.name}`;
+      if (!isImageFile(f)) { bad++; continue; }
+      try {
+        const im = await fileToImage(f);
+        const meta = nameFromFile(f.name);
+        if (meta.key && KEYS.includes(meta.key)) im.keyFrom = meta.key;
+        await archiveSheet({ title: meta.title, form: '' }, im);
+        tried++;
+      } catch (err) { bad++; }
+    }
+    renderSheetLib(); renderSheetSize();
+    // report the resulting total: same-picture and same-title+key sheets fold together on the way in,
+    // so "how many went in" is not simply the number of files picked
+    const skipped = tried - (sheetCache.length - start);
+    status.textContent = `보관함 ${sheetCache.length}장.`
+      + (skipped > 0 ? ` 겹쳐서 합친 것 ${skipped}장.` : '')
+      + (bad ? ` 못 읽은 것 ${bad}장.` : '');
+  });
   $('#sheetlib').addEventListener('toggle', () => { if ($('#sheetlib').open) renderSheetSize(); });
   $('#lib').addEventListener('toggle', () => { if ($('#lib').open) renderLibrary(); });
   $('.lb-close').addEventListener('click', closeSheetView);

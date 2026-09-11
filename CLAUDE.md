@@ -54,6 +54,10 @@ Covenant 청년부 찬양팀이 매주 쓰는 A4 찬양 콘티 편집기다. 서
   - 보관함에서 악보를 꺼낼 때 `keyFrom`에 그 악보의 키를 실어 준다. 안 그러면 `syncSheetMeta`가 빈 키를 되읽어 기록의 키를 지운다.
   - `archiveSheet`는 `libId`가 있으면 무조건 건너뛴다. 기록이 없는데도 다시 만들면, 사용자가 지운 악보가 새로고침마다 되살아난다.
   - `.lightbox[hidden] { display: none }` 규칙이 꼭 있어야 한다. 클래스에 `display: flex`를 주면 브라우저 기본 `[hidden] { display: none }`을 눌러 버려서, `hidden`을 걸어도 화면에 남는다.
+  - 보관함 안의 **`＋ 악보만 골라 보관함에 넣기`**(`#sheet-add`)는 콘티를 거치지 않고 그림만 넣는 길이다. 받아 둔 악보 96장을 곡 카드에서 고르면 96곡짜리 콘티가 생겨 버려서 따로 뒀다. 파일 이름이 `제목 - 키.png`면 제목과 키가 따라 들어간다(`nameFromFile`).
+    - 그래서 `archiveSheet`가 Promise를 돌려준다. 한 장씩 `await`하지 않으면 썸네일 96개를 한꺼번에 만들다 메모리가 터진다.
+    - 파일 형식은 `isImageFile`로 본다 — `type`이 비거나 `application/octet-stream`으로 오는 경우(서버 MIME 표에 없는 `.gif` 등)가 있어서 확장자를 보조로 쓴다.
+    - 끝나고 보여 주는 건 **결과 장수**다. 들어가는 길에 지문·제목+키로 합쳐지므로 "몇 장 넣었다"가 고른 파일 수와 맞지 않는다.
   - 앱을 열 때 지금 콘티에 있는 악보를 한 번 훑어 보관함에 채운다. 이 기능 이전에 만든 콘티도 비지 않게 하려는 것이다.
   - 보관함에서 지워도 콘티 안의 악보는 그대로다(서로 복사본이다).
 - 보관함: IndexedDB `conti-maker`(버전 4). store는 `state`(key `current`), `contis`, `sheets`, `images`, `contiIndex`다.
