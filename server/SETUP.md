@@ -1,59 +1,58 @@
-# 서버 붙이기 (10분)
+# 서버
 
-악보 보관함을 팀이 같이 쓰고, 콘티는 각자 따로 두려면 서버가 필요합니다.
-Supabase 무료 플랜을 씁니다. 데이터베이스·로그인·파일 보관이 한 곳에 있어서
-지금처럼 빌드 없는 `index.html` 한 장으로도 붙일 수 있습니다.
+악보 보관함을 팀이 같이 쓰고 콘티는 각자 두기 위해 Supabase(Postgres + Auth +
+Storage)를 쓴다. 빌드가 없는 `index.html` 한 장에 CDN 으로 붙는다.
 
-계정 만들기는 제가 대신 해 드릴 수 없어서, 아래 1~3번만 직접 해 주세요.
+## 지금 붙어 있는 것
 
-## 1. 프로젝트 만들기
+| | |
+|---|---|
+| 프로젝트 | `conti-jjaja` |
+| 조직 | `slzp300-sketch's COVY` (Free) |
+| 지역 | Northeast Asia (Seoul) |
+| URL | `https://xcvpjmhwljhplfnujblc.supabase.co` |
+| 대시보드 | https://supabase.com/dashboard/project/xcvpjmhwljhplfnujblc |
 
-1. https://supabase.com 에서 GitHub 계정으로 로그인
-2. **New project**
-   - Name: `conti-jjaja`
-   - Database Password: 아무거나 (적어 두세요, 쓸 일은 거의 없습니다)
-   - Region: **Northeast Asia (Seoul)**
-3. 2분쯤 기다리면 준비됩니다.
+표와 규칙은 [`schema.sql`](schema.sql)을 SQL Editor 에 붙여넣어 만들었다. 고칠
+일이 생기면 그 파일을 고치고 다시 돌린다 — 두 번 돌려도 안전하게 써 두었다.
 
-## 2. 표 만들기
+## 열쇠
 
-왼쪽 **SQL Editor** → **New query** → 이 폴더의 [`schema.sql`](schema.sql) 내용을
-통째로 붙여넣고 **Run**.
+`index.html` 의 `CLOUD.anon` 에 들어 있는 **publishable 키**(`sb_publishable_…`)는
+브라우저에 드러나라고 있는 공개 키다. 저장소에 들어가도 된다. 실제 잠금은
+`schema.sql` 의 RLS 규칙이다.
 
-`Success. No rows returned` 이 나오면 된 겁니다.
+**secret 키(`sb_secret_…`)는 앱에 넣지 않는다.** 모든 규칙을 무시하는 열쇠다.
 
-## 3. 로그인 설정
+새 키가 필요하면 대시보드 → Settings → API Keys.
 
-왼쪽 **Authentication** → **Sign In / Providers**
+## 로그인
 
-- **Email** 이 켜져 있는지 확인 (기본값)
-- **Confirm email** 은 켠 채로 둡니다 — 가입을 열어 두었으니 최소한 진짜
-  메일 주소인지는 확인하는 게 좋습니다.
+이메일 + 비밀번호, 가입은 공개. 메일 주소 확인(Confirm email)은 켜 둔 상태다.
 
-**URL Configuration** 에서
-- Site URL: `https://conti-han-jang.vercel.app`
+- 처음 가입하면 확인 메일이 간다. 그 링크를 눌러야 로그인된다.
+- 무료 플랜은 Supabase 공용 메일 서버를 쓰고 **시간당 몇 통으로 제한**된다.
+  팀원이 한꺼번에 가입하면 메일이 늦을 수 있다. 자주 걸리면 대시보드 →
+  Authentication → Emails 에서 직접 쓰는 SMTP 를 붙이면 된다.
 
-## 4. 열쇠 두 개 알려주기
+## 알아 둘 것
 
-왼쪽 **Project Settings** → **API** 에 있는 두 줄을 저에게 주세요.
+- **가입이 공개라 주소를 아는 사람은 누구나 악보 보관함 전체를 본다.** 받아 둔
+  악보들은 저작권이 있는 것들이라, 팀만 쓸 거면 `schema.sql` 맨 아래 주석대로
+  승인제로 바꾸는 걸 권한다. SQL 세 줄이고 앱은 손대지 않는다.
+- **무료 프로젝트는 계정당 2개까지**다. 이 프로젝트를 만들려고
+  `im_dealer_scraper_test` 의 프로젝트를 일시정지했다(2026-09-11). 데이터는
+  남아 있고 1년 안에 대시보드에서 다시 켤 수 있다.
+- **1주일 동안 아무도 안 들어가면 프로젝트가 멈춘다.** 버튼 한 번이면 깨어난다.
+  용량은 파일 1GB · DB 500MB · egress 월 5GB.
+- 서버가 없거나 로그인을 안 하면 앱은 예전처럼 그 브라우저에만 저장한다.
+  `CLOUD` 두 칸을 비우면 서버 코드는 아예 돌지 않는다.
 
-- **Project URL** — `https://xxxxxxxx.supabase.co`
-- **anon public** 키 — `eyJ...` 로 시작하는 긴 글자
+## 서버 없이 확인하기
 
-이 둘은 앱에 그대로 박혀 브라우저에 노출되는 값입니다. 원래 그렇게 쓰라고 있는
-공개 키라서 괜찮습니다. 실제 잠금은 위 SQL 의 규칙(RLS)이 합니다.
+```
+node dev/cloud-test.mjs
+```
 
-**`service_role` 키는 절대 주지 마세요.** 그건 모든 규칙을 무시하는 열쇠라
-앱에 넣으면 안 됩니다.
-
-## 알아 두실 것
-
-- **무료 플랜은 1주일 동안 아무도 안 들어가면 프로젝트가 잠깐 멈춥니다.**
-  대시보드에서 버튼 한 번이면 깨어납니다. 주마다 쓰는 콘티라 걸릴 일은 거의
-  없습니다. 용량은 파일 1GB · DB 500MB 인데, 지금 악보 98장이 14MB니 넉넉합니다.
-- **가입을 공개로 열면 주소를 아는 사람은 누구나 악보 보관함 전체를 봅니다.**
-  받아 둔 악보들은 저작권이 있는 것들이라, 팀만 쓰실 거면 나중에라도
-  `schema.sql` 맨 아래 주석대로 승인제로 바꾸는 걸 권합니다. SQL 세 줄이고
-  앱은 손대지 않아도 됩니다.
-- 서버를 붙여도 **로그인 없이 쓰던 방식은 그대로 남습니다.** 인터넷이 없거나
-  로그인을 안 하면 지금처럼 이 브라우저에만 저장됩니다.
+`index.html` 을 복사하면서 CDN 자리에 `dev/mock-supabase.js` 를 물려
+`dev/cloud-test.html` 을 만든다. 앱 코드에 시험용 갈래를 두지 않으려는 것이다.
