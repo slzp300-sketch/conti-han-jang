@@ -502,7 +502,8 @@
   // 악보 보관함을 팀이 같이 쓰기 위한 것. 표와 규칙은 server/schema.sql 에 있다.
   // 두 칸이 비어 있으면 서버 코드는 한 줄도 돌지 않고 앱은 예전 그대로 이 브라우저에만
   // 저장한다 — 로그인 화면도 나오지 않는다. 인터넷이 없을 때 쓰던 길이 그대로 남는다.
-  const CLOUD = { url: '', anon: '' };
+  // anon 자리의 publishable 키는 브라우저에 드러나라고 있는 공개 키다. 진짜 잠금은 RLS 다.
+  const CLOUD = { url: 'https://xcvpjmhwljhplfnujblc.supabase.co', anon: 'sb_publishable_TKAFUbVf1WtIux3ECBAocg_wE0y0Gj-' };
   const SB_LIB = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0/dist/umd/supabase.js';
   let sb = null, me = null;
   const online = () => !!(sb && me);
