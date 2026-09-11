@@ -11,7 +11,8 @@ import { readFile, writeFile } from 'node:fs/promises';
 const src = await readFile('index.html', 'utf8');
 
 const swaps = [
-  [/const CLOUD = \{ url: '', anon: '' \};/,
+  // 실제 열쇠가 들어 있든 비어 있든 가짜 서버로 바꾼다 — 시험이 진짜 서버를 건드리면 안 된다
+  [/const CLOUD = \{[^}]*\};/,
    "const CLOUD = { url: 'http://mock.local', anon: 'mock-anon-key' };"],
   [/const SB_LIB = '[^']*';/,
    "const SB_LIB = '/dev/mock-supabase.js';"],

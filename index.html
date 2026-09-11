@@ -526,7 +526,7 @@
         const was = me && me.id;
         me = s ? s.user : null;
         renderAccount();
-        if ((me && me.id) !== was) syncSheets();
+        if ((me && me.id) !== was) syncSheets().then(renderLibrary);
       });
     } catch (e) { sb = null; }
   }
@@ -742,6 +742,86 @@
     };
   }
 
+  // ── 콘티 ↔ 서버 ──────────────────────────────────────────────────────────
+  // 콘티 행에는 그림이 없다. 악보는 이미 보관함에 있으니 콘티는 "어느 악보를 어디까지
+  // 잘라 얼마 크기로" 만 들고 있으면 된다. 콘티 하나가 몇 MB 에서 몇 KB 가 된다.
+  // 참조는 id 와 파일 경로를 같이 적는다. 악보가 보관함에서 지워져 카드가 없어져도
+  // 경로만 있으면 그 콘티는 그대로 펼쳐진다.
+  const idByPixels = src => {
+    const hit = sheetCache.find(s => s.fp === sheetFp(src));
+    return hit ? hit.id : '';
+  };
+  async function cloudPutConti(contiId, tag, src) {
+    try {
+      const blob = await dataUrlToBlob(src);
+      const path = `${me.id}/${contiId}-${tag}.jpg`;
+      const { error } = await sb.storage.from('conti')
+        .upload(path, blob, { contentType: blob.type || 'image/jpeg', upsert: true });
+      return error ? '' : path;
+    } catch (e) { return ''; }
+  }
+  async function cloudGetFile(bucket, path) {
+    try {
+      const { data } = await sb.storage.from(bucket).download(path);
+      return data ? await blobToDataUrl(data) : '';
+    } catch (e) { return ''; }
+  }
+  async function stripConti(c) {
+    const songs = [];
+    for (const s of c.songs) {
+      const images = [];
+      for (const [n, im] of s.images.entries()) {
+        const out = {
+          w: im.w, h: im.h, top: im.top, bottom: im.bottom, scale: im.scale,
+          joinPrev: !!im.joinPrev, libId: im.libId || '',
+          keyFrom: im.keyFrom || '', keyTo: im.keyTo || '',
+          srcId: im.src ? idByPixels(im.src) : '',
+          origId: im.orig ? idByPixels(im.orig) : '',
+        };
+        if (out.srcId) out.srcPath = sheetPath(out.srcId);
+        if (out.origId) out.origPath = sheetPath(out.origId);
+        // 보관함에 없는 그림만 사람별 폴더에 따로 올린다 — 보관함에서 지웠는데 콘티에는
+        // 남겨 둔 악보 같은 것들이다
+        if (im.src && !out.srcId) out.srcPath = await cloudPutConti(c.id, `${s.id}-${n}s`, im.src);
+        if (im.orig && !out.origId) out.origPath = await cloudPutConti(c.id, `${s.id}-${n}o`, im.orig);
+        images.push(out);
+      }
+      songs.push({ id: s.id, title: s.title || '', form: s.form || '', joinPrev: !!s.joinPrev, folded: !!s.folded, images });
+    }
+    return { id: c.id, title: c.title || '', updatedAt: c.updatedAt || Date.now(), songs };
+  }
+  async function pixelsFor(im, which) {
+    const id = im[which + 'Id'], path = im[which + 'Path'];
+    // 보관함에 있는 것이면 getImage 가 로컬 복사본부터 본다. 카드가 사라진 뒤에는
+    // 경로로 곧장 받아 온다.
+    const byId = id ? await getImage(id) : '';
+    if (byId) return byId;
+    if (!path) return '';
+    return cloudGetFile(path.includes('/') ? 'conti' : 'sheets', path);
+  }
+  async function hydrateConti(c) {
+    for (const s of c.songs) {
+      for (const im of s.images) {
+        im.src = await pixelsFor(im, 'src');
+        if (im.origId || im.origPath) im.orig = await pixelsFor(im, 'orig');
+        delete im.srcId; delete im.origId; delete im.srcPath; delete im.origPath;
+      }
+    }
+    return c;
+  }
+  let contiInFlight = false;
+  async function cloudSaveConti(c) {
+    if (!online() || contiInFlight) return;
+    contiInFlight = true;
+    try {
+      const data = await stripConti(c);
+      await sb.from('contis').upsert({
+        id: c.id, user_id: me.id, title: c.title || '', data,
+        pages: contiIndexOf(c).pages, updated_at: new Date(c.updatedAt || Date.now()).toISOString(),
+      }, { onConflict: 'id' });
+    } catch (e) { } finally { contiInFlight = false; }
+  }
+
   async function saveState() {
     try {
       const db = await openDB();
@@ -755,6 +835,9 @@
       });
       const t = new Date();
       $('#saved-at').textContent = '저장됨 ' + t.toTimeString().slice(0, 5);
+      // 로컬이 먼저다. 서버는 뒤따라가고, 실패해도 쓰던 것은 남는다
+      if (!isEmpty(state)) cloudSaveConti(state);
+      else if (online()) sb.from('contis').delete().eq('id', state.id).then(() => { }, () => { });
       // redrawing the library re-reads every stored conti, images and all — only worth it while
       // the list is actually on screen; opening it refreshes anyway
       if ($('#lib').open) renderLibrary();
@@ -935,10 +1018,10 @@
     // 공용 보관함이라 올린 사람만 지울 수 있다(서버 규칙). 남의 악보를 지우려 하면
     // 서버가 0줄을 지우고 조용히 끝나므로, 다음 새로고침에 제자리로 돌아온다.
     if (online()) {
-      try {
-        await sb.from('sheets').delete().eq('id', id);
-        await sb.storage.from('sheets').remove([(gone && gone.path) || sheetPath(id)]);
-      } catch (e) { }
+      // 표에서만 지우고 그림 파일은 남긴다. 콘티는 악보를 참조로만 들고 있어서, 파일까지
+      // 지우면 그 악보를 쓴 남의 콘티에서 악보가 소리 없이 사라진다. 목록에서 사라지는
+      // 것이 사용자가 원한 것이고, 남은 파일은 아무도 찾지 못하는 찌꺼기다.
+      try { await sb.from('sheets').delete().eq('id', id); } catch (e) { }
     }
   }
   // archive a sheet the moment it enters a conti; the same picture is never stored twice
@@ -1050,6 +1133,28 @@
   // The list reads the index and nothing else. The index is built from the contis once, the first
   // time this version runs; after that it is kept in step by saveState and deleteConti.
   async function listContis() {
+    // 로그인했으면 서버의 내 콘티가 목록이다. 받은 것은 로컬에도 남겨 두어 인터넷이
+    // 없을 때도 목록이 비지 않게 한다.
+    if (online()) {
+      try {
+        const { data, error } = await sb.from('contis').select('id,title,data,pages,updated_at');
+        if (error) throw error;
+        const list = data.map(r => ({
+          id: r.id, title: r.title || '', updatedAt: Date.parse(r.updated_at), pages: r.pages || 1,
+          songs: ((r.data && r.data.songs) || []).map(s => ({
+            title: s.title || '', form: s.form || '',
+            libIds: (s.images || []).map(im => im.libId || im.srcId || ''),
+          })),
+        }));
+        const db = await openDB();
+        await new Promise(res => {
+          const tx = db.transaction(CIDX, 'readwrite');
+          list.forEach(c => tx.objectStore(CIDX).put(c));
+          tx.oncomplete = tx.onerror = res;
+        });
+        return list;
+      } catch (e) { /* 서버가 안 되면 아래 로컬 목록으로 */ }
+    }
     try {
       const db = await openDB();
       return await new Promise((res, rej) => {
@@ -1087,14 +1192,32 @@
     } catch (e) { return []; }
   }
   async function getConti(id) {
+    let local = null;
     try {
       const db = await openDB();
-      return await new Promise((res, rej) => {
+      local = await new Promise((res, rej) => {
         const rq = db.transaction(LIB).objectStore(LIB).get(id);
         rq.onsuccess = () => res(rq.result || null);
         rq.onerror = () => rej(rq.error);
       });
-    } catch (e) { return null; }
+    } catch (e) { local = null; }
+    if (!online()) return local;
+    // 다른 기기에서 고쳤을 수 있다. 서버 것이 더 새 것이면 그것을 쓴다.
+    try {
+      const { data, error } = await sb.from('contis').select('data,updated_at').eq('id', id).maybeSingle();
+      if (error || !data) return local;
+      const at = Date.parse(data.updated_at);
+      if (local && (local.updatedAt || 0) >= at) return local;
+      const full = await hydrateConti(data.data);
+      full.updatedAt = at;
+      const db = await openDB();
+      await new Promise(res => {
+        const tx = db.transaction(LIB, 'readwrite');
+        tx.objectStore(LIB).put(full);
+        tx.oncomplete = tx.onerror = res;
+      });
+      return full;
+    } catch (e) { return local; }
   }
   async function deleteConti(id) {
     try {
@@ -1106,6 +1229,15 @@
         tx.oncomplete = res; tx.onerror = () => rej(tx.error);
       });
     } catch (e) { /* ignore */ }
+    if (online()) {
+      try {
+        await sb.from('contis').delete().eq('id', id);
+        // 이 콘티만 쓰던 그림들도 같이 치운다. 사람별 폴더 안이라 남의 것은 건드리지 않는다.
+        const { data } = await sb.storage.from('conti').list(me.id, { limit: 1000 });
+        const mine = (data || []).filter(f => f.name.startsWith(id + '-')).map(f => `${me.id}/${f.name}`);
+        if (mine.length) await sb.storage.from('conti').remove(mine);
+      } catch (e) { }
+    }
   }
 
   // ---------- state ----------
@@ -2620,7 +2752,7 @@
     renderLibrary();
     renderSheetLib();
     // 서버는 화면이 다 그려진 다음에 붙인다. 인터넷이 느려도 앱이 늦게 뜨지 않는다.
-    initCloud().then(() => { renderAccount(); return syncSheets(); });
+    initCloud().then(() => { renderAccount(); return syncSheets(); }).then(renderLibrary);
     // the form font arrives from the CDN after first paint, and it decides how wide the form is
     // the form font decides the bar height, which decides how much room the sheets get
     document.fonts?.ready.then(() => { const w = $('#pages'); fitFormBars(w); fitSheets(w); fitPages(); });
