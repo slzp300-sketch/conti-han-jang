@@ -236,9 +236,12 @@
   }
   .form-bar { display: grid; grid-template-columns: 28mm 1fr; border: 0.6mm solid #000; min-height: 14mm; }
   .form-bar .lab { display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 12pt; border-right: 0.6mm solid #000; background: #fff; }
-  .form-bar .txt { display: flex; align-items: center; justify-content: center; font-family: var(--font-form); font-weight: 700; font-size: 21pt; text-align: center; padding: 1mm 4mm; line-height: 1.25; letter-spacing: .01em; word-break: keep-all; }
-  .form-bar .txt.long { font-size: 17pt; }
-  .form-bar .txt.longer { font-size: 14pt; }
+  /* block, not flex: as a flex container every text run and every <span> became its own item and
+     wrapped on its own, which tore "V-C-V-C-B-{C(목소리)}" into interleaved pieces */
+  /* min-width:0 — a grid track is auto-minimum by default, so a long form would widen the bar past
+     the page instead of wrapping (and would hide overflow from the fitting measurement) */
+  .form-bar .txt { display: block; align-self: center; min-width: 0; font-family: var(--font-form); font-weight: 700; font-size: 21pt; text-align: center; padding: 1mm 4mm; line-height: 1.25; letter-spacing: .01em; word-break: keep-all; text-wrap: balance; }
+  .form-bar .txt .sec { white-space: nowrap; }   /* a section never splits from its (note) */
   .form-bar .txt .r { color: var(--red); }
   .form-bar .txt .p { font-size: .62em; font-weight: 600; }
   .form-bar .txt .ph { color: #aaa; font-weight: 600; font-size: 14pt; }
@@ -459,14 +462,41 @@
   function escapeHtml(s) { return s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
   function renderForm(src) {
     if (!src.trim()) return '<span class="ph">송폼 입력</span>';
-    let html = escapeHtml(src);
-    html = html.replace(/\{([^}]*)\}/g, '<span class="r">$1</span>');
-    html = html.replace(/(\([^)]*\))/g, '<span class="p">$1</span>');
-    return html;
+    const style = s => s
+      .replace(/\{([^}]*)\}/g, '<span class="r">$1</span>')
+      .replace(/(\([^)]*\))/g, '<span class="p">$1</span>');
+    // Cut into sections at the dashes between them — but not at a dash inside {} or (), so
+    // "{C-C}" stays whole. Each section is kept unbreakable, so a line can only turn after a dash.
+    const html = escapeHtml(src);
+    const secs = [];
+    let cur = '', depth = 0;
+    for (const ch of html) {
+      cur += ch;
+      if (ch === '{' || ch === '(') depth++;
+      else if (ch === '}' || ch === ')') depth = Math.max(0, depth - 1);
+      else if (ch === '-' && depth === 0) { secs.push(cur); cur = ''; }
+    }
+    if (cur) secs.push(cur);
+    return secs.map(s => `<span class="sec">${style(s)}</span>`).join('');
   }
-  function formSizeClass(src) {
-    const n = src.replace(/[{}]/g, '').length;
-    return n > 52 ? 'longer' : n > 38 ? 'long' : '';
+
+  // How wide the form prints depends on the glyphs, not the character count: Korean is double width
+  // and the parenthetical is smaller. Measure instead, and take the largest size that stays on one
+  // line; below the smallest it wraps, and then it wraps only between sections.
+  const FORM_PT = [21, 19, 17, 15, 13, 11];
+  function fitFormBars(root) {
+    root.querySelectorAll('.form-bar .txt').forEach(el => {
+      if (el.querySelector('.ph')) { el.style.fontSize = ''; return; }
+      // Ask the layout how many lines it actually took rather than predicting the width: predicting
+      // lands wrong right at the boundary, and the preview's scale skews any rect-based guess.
+      // clientHeight and line-height are both unscaled CSS pixels, so this stays honest.
+      for (const pt of FORM_PT) {
+        el.style.fontSize = pt + 'pt';
+        const cs = getComputedStyle(el);
+        const inner = el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+        if (inner <= parseFloat(cs.lineHeight) * 1.5) break;
+      }
+    });
   }
 
   // ---------- image intake ----------
@@ -1243,7 +1273,7 @@
         b.innerHTML = `
           <div class="form-bar">
             <div class="lab">Song Form</div>
-            <div class="txt ${formSizeClass(song.form)}">${renderForm(song.form)}</div>
+            <div class="txt">${renderForm(song.form)}</div>
           </div>
           <div class="sheet">${sheet}</div>`;
         p.appendChild(b);
@@ -1255,6 +1285,7 @@
     }
     $('#page-count').textContent = pages.length ? pages.length + '쪽' : '';
     $('#song-count').textContent = state.songs.length ? state.songs.length + '곡' : '';
+    fitFormBars(wrap);
     fitPages();
     $('#head-title').textContent = state.title || '미리보기';
     document.title = state.title ? state.title + ' · 콘티 한 장' : '콘티 한 장';
@@ -1307,6 +1338,8 @@
     $('#conti-title').value = state.title || '';
     render();
     renderLibrary();
+    // the form font arrives from the CDN after first paint, and it decides how wide the form is
+    document.fonts?.ready.then(() => { fitFormBars($('#pages')); fitPages(); });
     if (saved && !saved.id) scheduleSave();
   })();
 })();
