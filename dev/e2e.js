@@ -112,10 +112,27 @@ window.__runURL = async function (url, W, truthKey) {
   return feed(W && W < img.width ? shrink(full, W) : full);
 };
 
+// The app asks the user to confirm the sheet's own key, and repairForKey leans on it. Setting it is
+// part of normal use, so measure with it set as well as with the auto guess.
+window.__setFromKey = async function (k) {
+  const sel = document.querySelector('.key-row select');
+  sel.value = k;
+  sel.dispatchEvent(new Event('change', { bubbles: true }));
+  await new Promise(r => setTimeout(r, 400));
+  return sel.value;
+};
+
 // score the boxes against the truth, grouping boxes into rows by their vertical position
 window.__score = function () {
+  // a corrected box reads "raw → final (왜 고쳤는지)"; an untouched one reads "text → 전조결과".
+  // Score the final reading, not the raw one.
+  const finalText = title => {
+    const m = title.match(/^(.+?) → (.+?) \((?:키에 맞춰 고침|같은 모양의 코드에 맞춰 고침)\)/);
+    const t = m ? m[2] : title.split(' →')[0];
+    return t.replace(/\s*\(읽을 수 없음[^)]*\)\s*$/, '').trim();
+  };
   const boxes = [...document.querySelectorAll('.cbox')].map(b => ({
-    text: b.title.split(' →')[0].replace(/ \(.*$/, '').trim(),
+    text: finalText(b.title),
     flag: b.className.replace('cbox', '').trim(),
     top: +b.style.top.replace('%', ''), left: +b.style.left.replace('%', ''),
   }));

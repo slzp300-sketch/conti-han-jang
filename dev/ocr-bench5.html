@@ -114,9 +114,25 @@ function rowsOf(cv) {
   return { rows, prof };
 }
 
+// ?img=/samples/ju.png&w=1400 runs against a real scan instead of the generated sheet
+async function loadSheet(W) {
+  const q = new URLSearchParams(location.search);
+  const src = q.get('img');
+  if (!src) return mkSheet(W);
+  const img = await new Promise((res, rej) => { const p = new Image(); p.onload = () => res(p); p.onerror = rej; p.src = src; });
+  const f = W / img.width;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = Math.round(img.height * f);
+  const x = c.getContext('2d');
+  x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high';
+  x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
+  x.drawImage(img, 0, 0, c.width, c.height);
+  return c;
+}
+
 async function run() {
-  const W = 620;
-  const sheet = mkSheet(W);
+  const W = +(new URLSearchParams(location.search).get('w') || 620);
+  const sheet = await loadSheet(W);
   const [c, ctx] = mk(sheet.width, sheet.height);
   ctx.drawImage(sheet, 0, 0);
   const staves = findStaves(ctx, c.width, c.height);

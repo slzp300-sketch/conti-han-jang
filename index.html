@@ -614,15 +614,6 @@
     return { root, bass, text: root + parsed.rest + (bass ? '/' + bass : '') };
   }
   const pretty = s => s.replace(/b(?![a-z])/g, '♭');   // Bb → B♭ for drawing (leaves 'b' inside words alone)
-  function guessKey(roots) { // score each key by how many chord roots are diatonic (I ii iii IV V vi)
-    let best = 'C', bestScore = -1;
-    KEYS.forEach(k => {
-      const t = pitchClass(k), dia = new Set([0, 2, 4, 5, 7, 9].map(x => (t + x) % 12));
-      let sc = 0; roots.forEach((r, i) => { const p = pitchClass(r); if (dia.has(p)) sc += 1; else sc -= 0.5; if (p === t) sc += (i === roots.length - 1 ? 2 : 0.5); });
-      if (sc > bestScore) { bestScore = sc; best = k; }
-    });
-    return best;
-  }
   // OCR drops ♭/♯ often. In the chosen key, a bare letter that is off-key while its flat/sharp twin is a
   // strong scale degree (I ii iii IV V vi) almost certainly lost its accidental: B → B♭ in B♭ major, F → F♯ in A.
   function repairForKey(text, key) {
@@ -633,6 +624,87 @@
     const fix = L => { const tw = L + (flat ? 'b' : '#'); return !dia.has(pitchClass(L)) && strong.has(pitchClass(tw)) ? tw : null; };
     if (pr.root.length === 1) { const tw = fix(pr.root); if (tw) pr.root = tw; }
     return pr.root + pr.rest + (pr.bass ? '/' + pr.bass : '');
+  }
+
+  // Which key explains the most readings? Reading and key depend on each other — a bad reading only
+  // mends once you assume a key — so try all twelve and keep the one that leaves the fewest oddities.
+  // Scoring the raw OCR roots alone put a sheet in A down as C, and the whole ♯ repair then misfired.
+  const DEG_QUALITY = { 0: 'M', 2: 'm', 4: 'm', 5: 'M', 7: 'M', 9: 'm', 11: 'd' };
+  function chordQuality(rest) {
+    const r = rest.replace(/[()]/g, '');
+    if (/^(dim|°)/.test(r)) return 'd';
+    if (/^m(?!aj)/.test(r)) return 'm';
+    if (/^sus/.test(r)) return null;      // a sus chord hides its third, so it fits either way
+    return 'M';
+  }
+  function guessKeyFromTokens(tokens) {
+    let best = 'C', bestScore = -Infinity;
+    KEYS.forEach(k => {
+      const tonic = pitchClass(k), dia = new Set([0, 2, 4, 5, 7, 9, 11].map(x => (tonic + x) % 12));
+      let sc = 0;
+      tokens.forEach((t, i) => {
+        const pr = parseChord(mendForKey(t.raw || t.text, k));
+        if (!pr) return;
+        if (!pr.known) { sc -= 0.3; return; }
+        const p = pitchClass(pr.root);
+        if (!dia.has(p)) { sc -= 0.7; return; }
+        // major/minor matters: an A major chord fits A, but in G it would have to be the minor ii
+        const q = chordQuality(pr.rest);
+        sc += (q === null || q === DEG_QUALITY[(p - tonic + 12) % 12]) ? 1.2 : 0.2;
+        if (p === tonic) sc += (i === tokens.length - 1 ? 1.5 : 0.4);
+      });
+      if (sc > bestScore) { bestScore = sc; best = k; }
+    });
+    return best;
+  }
+
+  // OCR turns ♯ into E, 2, g, s or 4, sometimes leaves one of those sitting after a real ♯, and drops
+  // the slash of a bass chord ("A/C#" comes back as "ACs"). Mend a token only when the result is a
+  // chord that belongs in the chosen key and is spelled the way that key spells things — without that
+  // guard a stray letter invents a chord that is not on the page ("As" would become "Ab").
+  function mendForKey(text, key) {
+    if (parseChord(text)?.known) return text;
+    const acc = SHARP_KEYS.has(key) ? '#' : 'b';
+    const tonic = pitchClass(key), dia = new Set([0, 2, 4, 5, 7, 9, 11].map(x => (tonic + x) % 12));
+    // the mended note must be in the key AND spelled the way the key spells it, so a sheet in C
+    // cannot "mend" FEm7 into the nonsense F♭m7 just because F♭ sounds like E
+    const fits = n => { const p = pitchClass(n); return dia.has(p) && spell(p, key) === n; };
+    const ok = s => { const pr = parseChord(s); return !!pr && pr.known && fits(pr.root) && (!pr.bass || fits(pr.bass)); };
+    const bases = [text];
+    const m = text.match(/^([A-G][#b♯♭]?)([A-G].*)$/);
+    if (m && !text.includes('/')) bases.push(m[1] + '/' + m[2]);
+    for (const b of bases) {
+      if (ok(b)) return b;
+      for (let i = 1; i < b.length; i++) {
+        if (!/[E2gs4]/.test(b[i])) continue;
+        let c = null;
+        if (/[A-G]/.test(b[i - 1])) c = b.slice(0, i) + acc + b.slice(i + 1);
+        else if (/[#b♯♭]/.test(b[i - 1])) c = b.slice(0, i) + b.slice(i + 1);
+        if (c && ok(c)) return c;
+      }
+    }
+    return text;
+  }
+
+  // "Esus4 E7" printed close together comes back as one word. Split a token only when it does not
+  // parse on its own and both halves are chords — no real chord splits that way.
+  function splitGlued(tokens) {
+    const out = [];
+    tokens.forEach(tk => {
+      const t = tk.text;
+      if (parseChord(t)?.known || !tk.syms || tk.syms.length !== t.length) { out.push(tk); return; }
+      for (let i = 2; i < t.length - 1; i++) {
+        if (!/[A-G]/.test(t[i])) continue;
+        const a = t.slice(0, i), b = t.slice(i);
+        if (!parseChord(a)?.known || !parseChord(b)?.known) continue;
+        const sa = tk.syms.slice(0, i), sb = tk.syms.slice(i);
+        out.push({ ...tk, text: a, raw: a, syms: sa, x0: sa[0].x0, x1: sa[sa.length - 1].x1 });
+        out.push({ ...tk, text: b, raw: b, syms: sb, x0: sb[0].x0, x1: sb[sb.length - 1].x1 });
+        return;
+      }
+      out.push(tk);
+    });
+    return out;
   }
 
   // staff lines: rows where ≥50% of pixels are dark (< 200 — scans are often light grey), clustered by the sheet's typical spacing
@@ -690,11 +762,15 @@
       if (on && s < 0) s = y;
       if ((!on || y === prof.length - 1) && s >= 0) { rows.push({ y0: s, y1: y, max: Math.max(...prof.slice(s, y + 1)) }); s = -1; }
     }
-    // a full-width run is a staff line, not text; anything shorter than a letter is a stray mark
-    // (the clipped top edge of the staff shows up exactly like that)
-    const isText = r => r.max < cv.width * 0.6 && r.max >= 2;
-    let text = rows.filter(r => isText(r) && r.y1 - r.y0 >= gap * 0.9);
-    if (!text.length) text = rows.filter(r => isText(r) && r.y1 - r.y0 >= 2);
+    // A run across the whole width is a rule, not text. The row touching the band's bottom edge is
+    // the stems, beams and clef poking up out of the staff below — on real engraving that row is
+    // always present and is never the chords, so drop it whenever anything else is left.
+    const isText = r => r.max < cv.width * 0.85 && r.max >= 2;
+    let cand = rows.filter(isText);
+    const clear = cand.filter(r => r.y1 < cv.height - 2);
+    if (clear.length) cand = clear;
+    let text = cand.filter(r => r.y1 - r.y0 >= gap * 0.9);
+    if (!text.length) text = cand;
     if (!text.length) return { canvas: cv, offY: 0 };
     const r = text[text.length - 1], pad = Math.max(1, Math.round((r.y1 - r.y0) * 0.35));
     const y0 = Math.max(0, r.y0 - pad), y1 = Math.min(cv.height, r.y1 + pad);
@@ -887,7 +963,7 @@
     }
     // chord symbols on one sheet are all about the same height — drop outliers (stray beams, big titles)
     const hs = tokens.map(t => t.y1 - t.y0).sort((a, b) => a - b), med = hs[hs.length >> 1] || gap * 1.5;
-    tokens = tokens.filter(t => (t.y1 - t.y0) > med * 0.5 && (t.y1 - t.y0) < med * 1.8);
+    tokens = splitGlued(tokens.filter(t => (t.y1 - t.y0) > med * 0.5 && (t.y1 - t.y0) < med * 1.8));
     tokens.sort((a, b) => a.staff - b.staff || a.x0 - b.x0);
     const voted = crossVote(c, tokens);
     return { tokens, w: W, h: H, img, lowRes, voted };
@@ -978,7 +1054,13 @@
     const semis = () => (pitchClass(selT.value) - pitchClass(selF.value) + 12) % 12;
     function applyKeyRepair() {
       if (!job) return;
-      job.tokens.forEach(tk => { if (!tk.manual && tk.raw) { tk.text = repairForKey(tk.raw, selF.value); tk.repaired = tk.text !== tk.raw; } });
+      job.tokens.forEach(tk => {
+        if (tk.manual || !tk.raw) return;
+        const mended = mendForKey(tk.raw, selF.value);
+        if (mended !== tk.raw) tk.redraw = true;   // symbols no longer line up with the reading
+        tk.text = repairForKey(mended, selF.value);
+        tk.repaired = tk.text !== tk.raw;
+      });
     }
     function drawBoxes() {
       boxes.innerHTML = '';
@@ -1026,8 +1108,7 @@
       btnFind.disabled = true; btnApply.disabled = true;
       try {
         job = await findChords(base, t => { status.textContent = t; });
-        const roots = job.tokens.map(t => parseChord(t.text)?.root).filter(Boolean);
-        if (roots.length && !im.keyFrom) selF.value = guessKey(roots);
+        if (job.tokens.length && !im.keyFrom) selF.value = guessKeyFromTokens(job.tokens);
         applyKeyRepair();
         const bad = job.tokens.filter(t => !parseChord(t.text)).length, fixed = job.tokens.filter(t => t.repaired).length;
         status.textContent = job.noStaves ? '오선을 찾지 못했습니다. 악보가 똑바로 놓인 이미지인지 확인해 주세요. 빈 곳을 눌러 직접 추가할 수는 있습니다.'
