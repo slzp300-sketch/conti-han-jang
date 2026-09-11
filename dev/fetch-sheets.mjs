@@ -39,6 +39,14 @@ async function postSheet(id) {
   // scanning for file extensions — the sidebar's thumbnails are CSS backgrounds, not <img>.
   const urls = [...html.matchAll(/<img[^>]+src="(https:\/\/(?:blog\.kakaocdn\.net|t1\.daumcdn\.net)\/[^"]+)"/g)]
     .map(m => m[1].replace(/&amp;/g, '&'));
+  // A few posts carry no <img> at all — the sheet shows up only through the daum thumbnail proxy.
+  // Its `fname` is the original URL; the big sizes are the article, R750x0 is the sidebar.
+  if (!urls.length) {
+    const via = [...html.matchAll(/\/thumb\/R(\d+)x0\/\?[^"'\s]*?fname=([^"'&\s]+)/g)]
+      .filter(m => +m[1] >= 800)
+      .map(m => decodeURIComponent(m[2].replace(/&amp;/g, '&')));
+    if (via.length) urls.push(via[0]);
+  }
   if (!urls.length) return null;
   return { id, ...parseTitle(title), url: urls[0] };
 }
@@ -76,12 +84,21 @@ async function categoryPosts(letter) {
 const safe = s => s.replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim();
 
 // the older URLs carry no extension, so read it off the bytes instead of guessing from the path
-const extOf = buf => (buf[0] === 0x89 && buf[1] === 0x50) ? 'png' : (buf[0] === 0xFF && buf[1] === 0xD8) ? 'jpg' : 'bin';
-const nameOf = (hit, buf) => `${safe(hit.song)}${hit.keys[0] ? ` - ${hit.keys[0]}` : ''}.${extOf(buf)}`;
+function extOf(b) {
+  if (b[0] === 0x89 && b[1] === 0x50) return 'png';
+  if (b[0] === 0xFF && b[1] === 0xD8) return 'jpg';
+  if (b[0] === 0x47 && b[1] === 0x49) return 'gif';
+  if (b.slice(8, 12).toString('latin1') === 'WEBP') return 'webp';
+  return 'bin';
+}
+// A post filed under C may be titled "(C/A/Bb코드)" — when we are walking a category, that category's
+// key is the one the sheet is actually in, so prefer it over whichever happens to be listed first.
+const keyOf = (hit, prefer) => (prefer && hit.keys.includes(prefer)) ? prefer : hit.keys[0];
+const stemOf = (hit, prefer) => `${safe(hit.song)}${keyOf(hit, prefer) ? ` - ${keyOf(hit, prefer)}` : ''}`;
 
-async function save(hit) {
+async function save(hit, prefer) {
   const buf = Buffer.from(await (await get(hit.url)).arrayBuffer());
-  const name = nameOf(hit, buf);
+  const name = `${stemOf(hit, prefer)}.${extOf(buf)}`;
   await writeFile(join(OUT, name), buf);
   return { name, kb: Math.round(buf.length / 1024) };
 }
@@ -101,10 +118,10 @@ if (args[0] === '--category') {
       const hit = await postSheet(id);
       if (!hit) { missed++; console.log(`  [${n + 1}/${ids.length}] ${id}: 악보 없음`); continue; }
       // the extension is only known once the bytes arrive, so match on the stem
-      const stem = `${safe(hit.song)}${hit.keys[0] ? ` - ${hit.keys[0]}` : ''}.`;
+      const stem = stemOf(hit, letter) + '.';
       const already = [...have].find(f => f.startsWith(stem));
       if (already) { skipped++; console.log(`  [${n + 1}/${ids.length}] ${already} — 이미 있음`); continue; }
-      const r = await save(hit);
+      const r = await save(hit, letter);
       saved++; console.log(`  [${n + 1}/${ids.length}] ${r.name} (${r.kb}KB)`);
     } catch (e) { missed++; console.log(`  [${n + 1}/${ids.length}] ${id}: ${e.message}`); }
     await sleep(400);   // the blog is somebody's server, not an API
