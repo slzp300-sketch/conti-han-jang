@@ -3,12 +3,15 @@
 //
 //   node dev/fetch-sheets.mjs "내 구주 예수님" "주 행하신 위대한 일"
 //   node dev/fetch-sheets.mjs --post 799
+//   node dev/fetch-sheets.mjs --category C      (a whole key category, ~100 songs)
 //
-// One song at a time on purpose: the blog has ~800 posts, and mirroring all of them would hammer
-// someone else's server and bury your archive in sheets you will never sing.
+// Named songs or one key category at a time — not the whole blog. Requests are spaced out; files
+// that are already there are skipped, so a re-run only picks up what is missing.
 
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 const OUT = 'sheets-inbox';
 const SITE = 'https://worshipleader.tistory.com';
@@ -51,6 +54,23 @@ async function findPosts(term) {
   return out;
 }
 
+// walk a key category's paged list and collect its post ids, in order
+async function categoryPosts(letter) {
+  const cat = `${SITE}/category/${encodeURIComponent(letter + '코드 찬양목록')}`;
+  const ids = [];
+  for (let page = 1; page <= 40; page++) {
+    const html = await (await get(`${cat}?page=${page}`)).text();
+    // only the list entries carry data-tiara-plink; a plain href scan also drags in the sidebar's
+    // "recent / popular" links, which belong to other categories
+    const list = [...html.matchAll(/data-tiara-plink="\/(\d+)"/g)].map(m => m[1]);
+    const fresh = [...new Set(list)].filter(id => !ids.includes(id));
+    if (!fresh.length) break;
+    ids.push(...fresh);
+    await sleep(300);
+  }
+  return ids;
+}
+
 const safe = s => s.replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim();
 
 async function save(hit) {
@@ -66,7 +86,27 @@ const args = process.argv.slice(2);
 if (!args.length) { console.log('쓰기: node dev/fetch-sheets.mjs "곡 제목" ["다른 곡" ...]  |  --post 799'); process.exit(1); }
 await mkdir(OUT, { recursive: true });
 
-if (args[0] === '--post') {
+if (args[0] === '--category') {
+  const letter = (args[1] || 'C').toUpperCase();
+  const have = new Set(await readdir(OUT).catch(() => []));
+  const ids = await categoryPosts(letter);
+  console.log(`${letter}코드 찬양목록: 글 ${ids.length}개\n`);
+  let saved = 0, skipped = 0, missed = 0;
+  for (const [n, id] of ids.entries()) {
+    try {
+      const hit = await postSheet(id);
+      if (!hit) { missed++; console.log(`  [${n + 1}/${ids.length}] ${id}: 악보 없음`); continue; }
+      const key = hit.keys[0] ? ` - ${hit.keys[0]}` : '';
+      const ext = hit.url.includes('.jpg') || hit.url.includes('.jpeg') ? 'jpg' : 'png';
+      const name = `${safe(hit.song)}${key}.${ext}`;
+      if (have.has(name)) { skipped++; console.log(`  [${n + 1}/${ids.length}] ${name} — 이미 있음`); continue; }
+      const r = await save(hit);
+      saved++; console.log(`  [${n + 1}/${ids.length}] ${r.name} (${r.kb}KB)`);
+    } catch (e) { missed++; console.log(`  [${n + 1}/${ids.length}] ${id}: ${e.message}`); }
+    await sleep(400);   // the blog is somebody's server, not an API
+  }
+  console.log(`\n받음 ${saved} · 건너뜀 ${skipped} · 실패 ${missed}`);
+} else if (args[0] === '--post') {
   for (const id of args.slice(1)) {
     const hit = await postSheet(id);
     if (!hit) { console.log(`${id}: 악보 이미지를 찾지 못했습니다`); continue; }
