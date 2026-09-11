@@ -128,7 +128,8 @@
   .lib .acts button.d:hover { color: var(--danger); border-color: var(--danger); }
   .lib .none { padding: 12px; font-size: 12px; color: var(--muted); text-align: center; }
   /* click a row to unfold what is inside it; click again to fold it away */
-  .lib .t { background: none; border: 0; padding: 0; font: inherit; text-align: left; color: var(--ink); cursor: pointer; }
+  /* font-family/size only — the `font` shorthand here would reset the weight set above */
+  .lib .t { background: none; border: 0; padding: 0; font-family: inherit; font-size: inherit; text-align: left; color: var(--ink); cursor: pointer; }
   .lib .t:hover { text-decoration: underline; text-underline-offset: 2px; }
   .lib .peek { grid-column: 1 / -1; grid-row: auto; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
   .lib .peek-song { margin-bottom: 10px; }
@@ -683,9 +684,13 @@
   async function openConti(next) {
     recordForms('콘티 마무리');              // this conti is done — remember the forms it ended with
     await saveState();                       // never lose what's open now
-    state = next; upgradeState(state); cropTarget = null; savedFor = null;
+    state = next; upgradeState(state); cropTarget = null; savedFor = null; peekConti = null;
+    // Start the history fresh: undoing across a conti switch would swap the whole conti back.
+    // Drop any pending snapshot too, or a timer armed just before the switch pushes the old conti.
+    clearTimeout(histTimer);
+    past.length = 0; future.length = 0; settled = cloneState(state); updateHistoryUI();
     $('#conti-title').value = state.title || '';
-    render(); scheduleSave();
+    render(); saveState();   // saveState, not scheduleSave: no history entry for merely opening it
   }
   // ---------- sheet archive UI ----------
   function openSheetView(rec) {
@@ -1879,6 +1884,8 @@
     await loadSheets();
     // sheets already sitting in this conti predate the archive — put them in so nothing is missing
     state.songs.forEach(song => song.images.forEach(im => archiveSheet(song, im)));
+    // history needs the state as it was opened, or the first edit after a reload cannot be undone
+    settled = cloneState(state);
     render();
     renderLibrary();
     renderSheetLib();
