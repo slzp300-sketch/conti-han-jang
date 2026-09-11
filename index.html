@@ -294,7 +294,7 @@
         <dt>송폼 쓰기</dt>
         <dd><code>{C(목소리)}</code>처럼 중괄호로 감싸면 <span class="r">빨간색</span>, 괄호 안 글자는 작게 나옵니다. <code>B*6</code>·<code>C*2</code> 같은 별표는 그대로 나옵니다.</dd>
         <dt>악보 넣기</dt>
-        <dd>파일 선택·드래그·<code>Ctrl+V</code> 붙여넣기 모두 됩니다. 한 곡에 두 장이면 두 장 다 넣으세요. 같은 송폼이 각 장 위에 붙습니다.</dd>
+        <dd>이미지나 <b>PDF</b>를 파일 선택·드래그·<code>Ctrl+V</code>로 넣습니다. PDF는 쪽마다 한 장씩 선명하게 들어가서 키 바꾸기가 가장 잘 됩니다. 한 곡에 두 장이면 두 장 다 넣으세요. 같은 송폼이 각 장 위에 붙습니다.</dd>
         <dt>자르기 <span class="ic">✂</span></dt>
         <dd>악보 썸네일을 누르면 위·아래를 잘라낼 수 있습니다.</dd>
         <dt>키 바꾸기 <span class="ic">♯</span></dt>
@@ -490,10 +490,33 @@
       img.src = url;
     });
   }
-  async function addImages(song, files) {
-    const list = [...files].filter(f => f.type.startsWith('image/'));
-    for (const f of list) {
-      try { song.images.push(await fileToImage(f)); } catch (e) { /* skip unreadable */ }
+  // PDF pages are rendered at ~2000px wide, which is what chord recognition needs (phone screenshots are far too small)
+  async function pdfToImages(file, onStatus) {
+    if (!window.pdfjsLib) {
+      onStatus && onStatus('PDF 도구 불러오는 중…');
+      await new Promise((res, rej) => { const t = document.createElement('script'); t.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'; t.onload = res; t.onerror = () => rej(new Error('pdfjs')); document.head.appendChild(t); });
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+    const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+    const out = [];
+    for (let n = 1; n <= pdf.numPages; n++) {
+      onStatus && onStatus(`PDF ${n}/${pdf.numPages}쪽 그리는 중…`);
+      const page = await pdf.getPage(n);
+      const v1 = page.getViewport({ scale: 1 }), scale = 2000 / v1.width;
+      const vp = page.getViewport({ scale });
+      const c = document.createElement('canvas'); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+      const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+      await page.render({ canvasContext: ctx, viewport: vp }).promise;
+      out.push({ src: c.toDataURL('image/jpeg', 0.9), w: c.width, h: c.height, top: 0, bottom: 0 });
+    }
+    return out;
+  }
+  async function addImages(song, files, onStatus) {
+    for (const f of [...files]) {
+      try {
+        if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) song.images.push(...await pdfToImages(f, onStatus));
+        else if (f.type.startsWith('image/')) song.images.push(await fileToImage(f));
+      } catch (e) { alert('파일을 읽지 못했습니다: ' + f.name); }
     }
     render(); scheduleSave();
   }
@@ -922,7 +945,7 @@
         <textarea id="form-${song.id}" placeholder="V-C-V-C-B-{C(목소리)}-C*2-O" rows="2">${escapeHtml(song.form)}</textarea>
         <div class="thumbs"></div>
         <div class="crop-slot"></div>
-        <label class="drop" id="drop-${song.id}">악보 이미지 넣기 (클릭·드래그·붙여넣기)<input type="file" accept="image/*" multiple></label>
+        <label class="drop" id="drop-${song.id}">악보 이미지·PDF 넣기 (클릭·드래그·붙여넣기)<input type="file" accept="image/*,application/pdf" multiple></label>
         ${i > 0 ? `<label class="join ${song.joinPrev ? 'on' : ''}"><input type="checkbox" id="join-${song.id}" ${song.joinPrev ? 'checked' : ''}> 앞 곡과 같은 페이지에 넣기</label>` : ''}
       `;
       const thumbs = $('.thumbs', el);
@@ -957,10 +980,11 @@
         render(); scheduleSave();
       }));
       const drop = $('.drop', el);
-      $('input', drop).addEventListener('change', e => { addImages(song, e.target.files); e.target.value = ''; });
+      const dropStatus = t => { drop.firstChild.textContent = t || '악보 이미지·PDF 넣기 (클릭·드래그·붙여넣기)'; };
+      $('input', drop).addEventListener('change', e => { addImages(song, e.target.files, dropStatus); e.target.value = ''; });
       drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
       drop.addEventListener('dragleave', () => drop.classList.remove('over'));
-      drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); addImages(song, e.dataTransfer.files); });
+      drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); addImages(song, e.dataTransfer.files, dropStatus); });
 
       wrap.appendChild(el);
     });
