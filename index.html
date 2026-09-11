@@ -127,6 +127,19 @@
   .lib .acts button:hover { color: var(--ink); border-color: var(--ink); }
   .lib .acts button.d:hover { color: var(--danger); border-color: var(--danger); }
   .lib .none { padding: 12px; font-size: 12px; color: var(--muted); text-align: center; }
+  /* click a row to unfold what is inside it; click again to fold it away */
+  .lib .t { background: none; border: 0; padding: 0; font: inherit; text-align: left; color: var(--ink); cursor: pointer; }
+  .lib .t:hover { text-decoration: underline; text-underline-offset: 2px; }
+  .lib .peek { grid-column: 1 / -1; grid-row: auto; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
+  .lib .peek-song { margin-bottom: 10px; }
+  .lib .peek-song:last-child { margin-bottom: 0; }
+  .lib .peek-head { font-size: 12px; color: var(--ink); }
+  .lib .peek-head b { display: inline-block; min-width: 1.3em; color: var(--accent); }
+  .lib .peek-form { font-size: 11px; color: var(--muted); font-family: var(--font-mono); word-break: break-all; margin: 2px 0 4px; }
+  .lib .peek-shots { display: flex; gap: 4px; flex-wrap: wrap; }
+  .lib .peek-shots img { width: 42px; height: 56px; object-fit: cover; object-position: top; background: #fff; border: 1px solid var(--line); border-radius: 3px; }
+  .lib .peek-none { font-size: 11px; color: var(--muted); }
+  .sheets .sh-big { width: 100%; height: auto; background: #fff; border: 1px solid var(--line); border-radius: 4px; cursor: zoom-in; display: block; }
 
   /* archived sheets */
   .sheet-tools { padding: 8px 12px; border-top: 1px solid var(--line); background: var(--panel); }
@@ -357,24 +370,24 @@
     <details class="box help" open>
       <summary><span>사용법</span><span class="chev">▼</span></summary>
       <dl>
-        <dt>송폼 쓰기</dt>
-        <dd><code>{C(목소리)}</code>처럼 중괄호로 감싸면 <span class="r">빨간색</span>, 괄호 안 글자는 작게 나옵니다. <code>B*6</code>·<code>C*2</code> 같은 별표는 그대로 나옵니다.</dd>
+        <dt>송폼</dt>
+        <dd><code>{C(목소리)}</code> → <span class="r">빨간색</span>, 괄호 안은 작게. <code>B*6</code>은 그대로.</dd>
         <dt>악보 넣기</dt>
-        <dd>이미지나 <b>PDF</b>를 파일 선택·드래그·<code>Ctrl+V</code>로 넣습니다. PDF는 쪽마다 한 장씩 선명하게 들어가서 키 바꾸기가 가장 잘 됩니다. 한 곡에 두 장이면 두 장 다 넣으세요. 장이 나뉘면 같은 송폼이 각 장 위에 붙고, 한 페이지에 같이 넣으면 송폼은 위에 한 번만 붙습니다.</dd>
+        <dd>이미지·PDF를 클릭·드래그·<code>Ctrl+V</code>. PDF가 가장 선명합니다.</dd>
         <dt>자르기 · 크기 <span class="ic">✂</span></dt>
-        <dd>악보 썸네일을 누르면 위·아래를 잘라내고 <b>크기</b>도 줄일 수 있습니다. 패널 아래에 <b>인쇄 폭 몇 %</b>로 들어가는지 나오니, 100%가 될 때까지 잘라내면 페이지를 꽉 채웁니다.</dd>
+        <dd>썸네일을 누르면 위·아래 잘라내기와 크기 조절. <b>인쇄 폭 100%</b>가 되면 꽉 찹니다.</dd>
         <dt>키 바꾸기 <span class="ic">♯</span></dt>
-        <dd>썸네일을 누르고 ♯를 누르면 오선 위 코드를 찾아 다른 키로 바꿔 줍니다. <b>원래 키</b>가 맞는지 먼저 확인하세요 — 스캔에서 자주 빠지는 ♭·♯은 그 키에 맞춰 채워 넣고 노란 상자로 표시합니다. 빨간 상자는 못 읽은 것이니 눌러서 고치거나 지우고, 놓친 건 빈 곳을 눌러 추가하세요. 가로 1500px 이상 선명한 이미지일수록 잘 됩니다.</dd>
+        <dd>썸네일 → ♯ → 코드 찾기 → 적용. <b>원래 키</b>를 먼저 확인하세요. 노랑은 확인 필요, 빨강은 못 읽음 — 눌러서 고칩니다.</dd>
         <dt>두 곡 한 장</dt>
-        <dd>곡 카드 아래 <b>앞 곡과 같은 페이지에 넣기</b>를 켜면 두 곡이 한 장에 들어갑니다. 한 곡에 악보가 여러 장이면, 둘째 장부터는 자르기 패널의 <b>앞 장과 같은 페이지에 넣기</b>로 붙입니다. 두 악보는 <b>같은 배율</b>로 그려지니 한쪽만 커 보이지 않습니다. 폭이 100%에 못 미치면 양쪽을 더 잘라내세요 — A4 한 장짜리 악보라면 각각 절반쯤 남기면 꽉 찹니다. 한 곡을 일부러 작게 하려면 그 악보의 <b>크기</b>를 줄이면 나머지가 커집니다.</dd>
+        <dd>곡 카드의 <b>앞 곡과 같은 페이지에 넣기</b>. 악보가 여러 장이면 자르기 패널의 <b>앞 장과 같은 페이지에 넣기</b>. 폭이 모자라면 양쪽을 더 잘라내세요.</dd>
         <dt>악보 보관함</dt>
-        <dd>콘티에 넣은 악보는 <b>원본 그대로 자동으로 보관함에 쌓입니다.</b> 이름은 곡 제목을 따라가고, 키 바꾸기를 하면 원래 키가 붙어 <b>내 구주 예수님 - A</b>처럼 됩니다. 보관함에서 <b>작은 악보 그림을 누르면 크게 볼 수 있습니다</b>(Esc나 바깥을 눌러 닫습니다). 이름과 키는 보관함에서 직접 고칠 수 있고, 키를 바꿔 적용한 악보는 바뀐 키로 한 장 더 쌓입니다. 그 악보로 <b>썼던 송폼이 최근 3개까지</b> 같이 남습니다.<br><b>송폼은 콘티 이름을 정할 때, 인쇄할 때, ＋ 새 콘티로 넘어갈 때 기록됩니다.</b> 적는 중에는 남지 않습니다 — 고칠 때마다 덮어쓰면 반쯤 쓰다 만 것만 남으니까요. 그 두 순간이 "이 주에는 이렇게 하기로 했다"가 정해지는 때입니다.<br>다음에 콘티를 짤 때는 곡 카드의 <b>＋ 보관함에서 악보 넣기</b>로 골라 넣습니다. <b>악보와 송폼은 따로 가져옵니다</b> — 그림을 누르면 악보만 들어오고, 아래 <b>송폼 N ▾</b>를 누르면 지난 송폼이 펼쳐져 골라 쓸 수 있습니다. 같은 악보를 다른 송폼으로 쓰는 주가 있으니까요. 이미 적어 둔 송폼이 있으면 바꿀지 먼저 물어봅니다.<br><b>제목과 키가 같으면 한 장으로 합쳐집니다.</b> 같은 곡이라도 키가 다르면 따로 남습니다. 키를 안 정한 채 이름만 같으면 <b>이름 겹침</b>으로 표시되는데, 키를 정해 주면 합쳐집니다(다른 키를 실수로 지우지 않으려고 그렇게 뒀습니다).</dd>
-        <dt>편하게 쓰기</dt>
-        <dd>위쪽 <b>↶ ↷</b>로 되돌리고 다시 실행합니다(<code>Ctrl+Z</code>, <code>Ctrl+Shift+Z</code>). 곡 카드의 <b>▾</b>로 곡을 접어 두면 목록이 짧아지고, <b>모두 접기</b>로 한 번에 접습니다. <b>⧉</b>는 곡을 악보까지 그대로 복제합니다. 미리보기 위의 <b>‹ ›</b>로 쪽을 넘깁니다.</dd>
-        <dt>보관함</dt>
-        <dd>고칠 때마다 이 브라우저에 자동 저장됩니다. 주가 바뀌면 <b>＋ 새 콘티</b>, 지난 콘티는 보관함에서 <b>열기</b>하거나 <b>복제</b>해서 고쳐 쓰세요.</dd>
-        <dt>PDF</dt>
-        <dd><b>인쇄 / PDF 저장</b>을 누른 뒤 인쇄 창에서 "PDF로 저장"을 고르면 됩니다.</dd>
+        <dd>넣은 악보가 <b>제목 - 키</b>로 자동 저장됩니다. 다음엔 <b>＋ 보관함에서 악보 넣기</b>로 꺼내 씁니다. 악보와 송폼은 따로 가져옵니다(<b>송폼 N ▾</b>). 그림을 누르면 미리보기.</dd>
+        <dt>송폼 기록</dt>
+        <dd>콘티 이름을 정할 때·인쇄할 때·새 콘티로 넘어갈 때만 남습니다. 악보마다 최근 3개.</dd>
+        <dt>단축키</dt>
+        <dd><code>Ctrl+Z</code> 되돌리기 · <code>Ctrl+Shift+Z</code> 다시 실행. 곡 카드의 <b>▾</b> 접기, <b>⧉</b> 복제. 미리보기 위 <b>‹ ›</b> 쪽 넘기기.</dd>
+        <dt>보관·PDF</dt>
+        <dd>고칠 때마다 이 브라우저에 자동 저장. 인쇄 창에서 "PDF로 저장"을 고르면 PDF가 됩니다.</dd>
       </dl>
     </details>
   </aside>
@@ -688,6 +701,7 @@
     $('.lb-body img', lb).src = '';   // let the browser drop the decoded copy
   }
 
+  let peekSheet = null;   // sheet id whose preview is expanded in the archive list
   const sheetMatches = (rec, q) => !q || (sheetName(rec) + ' ' + (rec.key || '')).toLowerCase().includes(q.toLowerCase());
   function renderSheetLib() {
     const ul = $('#sheet-list'); if (!ul) return;
@@ -705,12 +719,14 @@
     list.forEach(rec => {
       const li = document.createElement('li');
       const dup = nameCount[sheetName(rec)] > 1;
+      const open = peekSheet === rec.id;
       li.innerHTML = `
-        <img class="sh-th" src="${rec.src}" alt="" title="눌러서 크게 보기">
+        <img class="sh-th" src="${rec.src}" alt="" title="${open ? '미리보기 닫기' : '눌러서 미리보기'}">
         <input class="sh-name" type="text" value="${escapeHtml(rec.title)}" placeholder="곡 제목" aria-label="곡 제목">
         <select class="sh-key" aria-label="키"><option value="">키 없음</option>${KEYS.map(x => `<option value="${x}" ${x === rec.key ? 'selected' : ''}>${KEY_LABEL[x] || x}</option>`).join('')}</select>
         <span class="sh-form" title="${escapeHtml((rec.forms || []).map(f => f.text).join('\n'))}">${(rec.forms || []).length ? `송폼 ${rec.forms.length}개 · ${escapeHtml(rec.forms[0].text)}` : '쓴 송폼 없음'}</span>
-        <span class="acts">${dup ? '<span class="dup" title="이름이 같은 악보가 또 있습니다. 키를 정해 주면 하나로 합쳐집니다.">이름 겹침</span>' : ''}<button type="button" class="d" title="이 악보 지우기">삭제</button></span>`;
+        <span class="acts">${dup ? '<span class="dup" title="이름이 같은 악보가 또 있습니다. 키를 정해 주면 하나로 합쳐집니다.">이름 겹침</span>' : ''}<button type="button" class="d" title="이 악보 지우기">삭제</button></span>
+        ${open ? `<div class="peek"><img class="sh-big" src="${rec.src}" alt="${escapeHtml(sheetName(rec))}" title="눌러서 화면 가득 보기"></div>` : ''}`;
       const save = () => {
         rec.title = $('.sh-name', li).value.trim();
         rec.key = $('.sh-key', li).value;
@@ -719,7 +735,8 @@
         if (mergeTwin(rec)) scheduleSave();   // naming it into an existing sheet folds the two
         renderSheetLib();
       };
-      $('.sh-th', li).addEventListener('click', () => openSheetView(rec));
+      $('.sh-th', li).addEventListener('click', () => { peekSheet = open ? null : rec.id; renderSheetLib(); });
+      $('.sh-big', li)?.addEventListener('click', () => openSheetView(rec));
       $('.sh-name', li).addEventListener('change', save);
       $('.sh-key', li).addEventListener('change', save);
       $('.acts .d', li).addEventListener('click', async () => {
@@ -797,6 +814,7 @@
     return box;
   }
 
+  let peekConti = null;   // conti id whose preview is expanded in the library list
   async function renderLibrary() {
     const list = (await listContis()).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
     const ul = $('#lib-list');
@@ -812,15 +830,23 @@
         const joined = (s.joinPrev && i ? 1 : 0) + s.images.filter((im, k) => k > 0 && im && im.joinPrev).length;
         return n + Math.max(1, s.images.length) - joined;
       }, 0);
+      const open = peekConti === c.id;
       li.innerHTML = `
-        <span class="t">${escapeHtml(c.title || '(이름 없음)')}${cur ? '<span class="tag">지금 열림</span>' : ''}</span>
+        <button type="button" class="t" aria-expanded="${open}">${escapeHtml(c.title || '(이름 없음)')}${cur ? '<span class="tag">지금 열림</span>' : ''}</button>
         <span class="m">${fmtDate(c.updatedAt || 0)} · ${c.songs.length}곡 · ${pages}쪽</span>
         <span class="acts">
           ${cur ? '' : '<button data-a="open">열기</button>'}
           <button data-a="dup" title="이 콘티를 복사해 새 콘티로 엽니다">복제</button>
           ${cur ? '' : '<button data-a="del" class="d">삭제</button>'}
-        </span>`;
-      li.querySelectorAll('button').forEach(b => b.addEventListener('click', async () => {
+        </span>
+        ${open ? `<div class="peek">${c.songs.map((s, n) => `
+          <div class="peek-song">
+            <div class="peek-head"><b>${n + 1}</b> ${escapeHtml(s.title || '제목 없음')}</div>
+            <div class="peek-form">${s.form ? escapeHtml(s.form) : '송폼 없음'}</div>
+            <div class="peek-shots">${s.images.map(im => `<img src="${im.src}" alt="">`).join('') || '<span class="peek-none">악보 없음</span>'}</div>
+          </div>`).join('') || '<p class="peek-none">빈 콘티입니다.</p>'}</div>` : ''}`;
+      $('.t', li).addEventListener('click', () => { peekConti = open ? null : c.id; renderLibrary(); });
+      li.querySelectorAll('.acts button').forEach(b => b.addEventListener('click', async () => {
         const a = b.dataset.a;
         if (a === 'open') { const full = await getConti(c.id); if (full) openConti(full); }
         if (a === 'dup') {
