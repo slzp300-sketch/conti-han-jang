@@ -147,6 +147,16 @@
   .lib .g-head:hover { background: var(--panel); }
   .lib .g-chev { color: var(--accent); width: 1em; }
   .lib .g-n { margin-left: auto; font-size: 11px; font-weight: 400; color: var(--muted); font-family: var(--font-mono); }
+  .sheet-sort { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 11px; color: var(--muted); }
+  .sheet-sort select { padding: 3px 6px; font-size: 11px; background: var(--panel); }
+  .sheet-recent { padding: 0 12px 10px; background: var(--panel); }
+  .rc-lab { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .rc-row { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+  .rc-item { flex: 0 0 54px; display: flex; flex-direction: column; gap: 3px; padding: 3px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 5px; cursor: pointer; }
+  .rc-item:hover { border-color: var(--accent); }
+  .rc-item img { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; object-position: top; background: #fff; border-radius: 2px; }
+  .rc-item span { font-size: 9px; color: var(--muted); line-height: 1.25; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .lib li.group.sub .g-head { padding-left: 26px; font-weight: 400; background: var(--panel); }
   .cho-bar { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 8px; }
   .cho-bar:empty { display: none; }
   .cho { min-width: 22px; padding: 2px 5px; font-size: 11px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); color: var(--muted); cursor: pointer; }
@@ -375,8 +385,17 @@
       <summary><span>악보 보관함</span><span class="n" id="sheet-count"></span><span class="chev">▼</span></summary>
       <div class="sheet-tools">
         <input type="search" id="sheet-q" placeholder="곡 제목이나 키로 찾기">
+        <div class="sheet-sort">
+          <select id="sheet-sort" aria-label="정렬">
+            <option value="name">이름순</option>
+            <option value="used">최근 쓴 순</option>
+            <option value="count">자주 쓴 순</option>
+          </select>
+          <span id="sheet-size"></span>
+        </div>
         <div class="cho-bar" id="cho-bar"></div>
       </div>
+      <div class="sheet-recent" id="sheet-recent"></div>
       <ul id="sheet-list"></ul>
     </details>
 
@@ -433,18 +452,24 @@
   'use strict';
 
   // ---------- storage (IndexedDB: images are too big for localStorage) ----------
-  // STORE 'state' keeps key 'current' (what's open now); STORE 'contis' keeps one record per conti, keyed by id.
-  // STORE 'sheets' keeps one record per archived sheet: the original image plus its song title and key.
-  const DB_NAME = 'conti-maker', STORE = 'state', LIB = 'contis', SHEETS = 'sheets';
+  // 'state' keeps key 'current' (what's open now); 'contis' keeps one full record per conti.
+  // A sheet is split in two so that opening the app does not read every picture ever archived:
+  //   'sheets'  — the light card: title, key, song forms, and a ~200px thumbnail
+  //   'images'  — the full-size picture, fetched only when one is actually shown or used
+  // 'contiIndex' is the same idea for the library list: titles and thumbnails, no sheet data.
+  const DB_NAME = 'conti-maker', STORE = 'state', LIB = 'contis', SHEETS = 'sheets',
+        IMAGES = 'images', CIDX = 'contiIndex';
   function openDB() {
     return new Promise((res, rej) => {
       try {
-        const rq = indexedDB.open(DB_NAME, 3);
+        const rq = indexedDB.open(DB_NAME, 4);
         rq.onupgradeneeded = () => {
           const db = rq.result;
           if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
           if (!db.objectStoreNames.contains(LIB)) db.createObjectStore(LIB, { keyPath: 'id' });
           if (!db.objectStoreNames.contains(SHEETS)) db.createObjectStore(SHEETS, { keyPath: 'id' });
+          if (!db.objectStoreNames.contains(IMAGES)) db.createObjectStore(IMAGES, { keyPath: 'id' });
+          if (!db.objectStoreNames.contains(CIDX)) db.createObjectStore(CIDX, { keyPath: 'id' });
         };
         rq.onsuccess = () => res(rq.result);
         rq.onerror = () => rej(rq.error);
@@ -458,8 +483,67 @@
     list.forEach(r => {
       if (!Array.isArray(r.forms)) r.forms = r.form ? [{ text: r.form, at: r.savedAt || Date.now(), why: '이전 기록' }] : [];
       delete r.form;
+      if (typeof r.useCount !== 'number') r.useCount = 0;
     });
     return list;
+  }
+
+  // A list draws 34px thumbnails; handing it the 2000px original means decoding a megabyte per row.
+  const THUMB_W = 220;
+  function makeThumb(src) {
+    return new Promise(res => {
+      const p = new Image();
+      p.onload = () => {
+        const w = Math.min(THUMB_W, p.width) || 1, h = Math.max(1, Math.round(p.height * w / (p.width || 1)));
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        const x = c.getContext('2d');
+        x.fillStyle = '#fff'; x.fillRect(0, 0, w, h);
+        x.drawImage(p, 0, 0, w, h);
+        res(c.toDataURL('image/jpeg', 0.72));
+      };
+      p.onerror = () => res('');
+      p.src = src;
+    });
+  }
+
+  // full-size pictures live on their own; keep only a handful decoded at a time
+  const imgMem = new Map(), IMG_MEM_MAX = 8;
+  async function putImage(id, src) {
+    try {
+      const db = await openDB();
+      await new Promise((res, rej) => {
+        const tx = db.transaction(IMAGES, 'readwrite');
+        tx.objectStore(IMAGES).put({ id, src });
+        tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+      });
+    } catch (e) { }
+  }
+  async function getImage(id) {
+    if (imgMem.has(id)) return imgMem.get(id);
+    try {
+      const db = await openDB();
+      const rec = await new Promise((res, rej) => {
+        const rq = db.transaction(IMAGES).objectStore(IMAGES).get(id);
+        rq.onsuccess = () => res(rq.result || null);
+        rq.onerror = () => rej(rq.error);
+      });
+      const src = rec ? rec.src : '';
+      if (imgMem.size >= IMG_MEM_MAX) imgMem.delete(imgMem.keys().next().value);
+      imgMem.set(id, src);
+      return src;
+    } catch (e) { return ''; }
+  }
+  async function removeImage(id) {
+    imgMem.delete(id);
+    try {
+      const db = await openDB();
+      await new Promise((res, rej) => {
+        const tx = db.transaction(IMAGES, 'readwrite');
+        tx.objectStore(IMAGES).delete(id);
+        tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+      });
+    } catch (e) { }
   }
   async function loadState() {
     try {
@@ -508,14 +592,29 @@
     saveTimer = setTimeout(saveState, 400);
     markHistory();
   }
+  // What the library list needs, with no picture data in it: a year of contis is a few kilobytes
+  // instead of a hundred megabytes. Sheets are named by their archive id so the list can borrow
+  // the archive's thumbnails.
+  function contiIndexOf(c) {
+    const pages = c.songs.reduce((n, s, i) => {
+      const joined = (s.joinPrev && i ? 1 : 0) + s.images.filter((im, k) => k > 0 && im && im.joinPrev).length;
+      return n + Math.max(1, s.images.length) - joined;
+    }, 0);
+    return {
+      id: c.id, title: c.title || '', updatedAt: c.updatedAt || Date.now(), pages,
+      songs: c.songs.map(s => ({ title: s.title || '', form: s.form || '', libIds: s.images.map(im => im.libId || '') })),
+    };
+  }
+
   async function saveState() {
     try {
       const db = await openDB();
       await new Promise((res, rej) => {
         state.updatedAt = Date.now();
-        const tx = db.transaction([STORE, LIB], 'readwrite');
+        const tx = db.transaction([STORE, LIB, CIDX], 'readwrite');
         tx.objectStore(STORE).put(state, 'current');
-        if (isEmpty(state)) tx.objectStore(LIB).delete(state.id); else tx.objectStore(LIB).put(state);
+        if (isEmpty(state)) { tx.objectStore(LIB).delete(state.id); tx.objectStore(CIDX).delete(state.id); }
+        else { tx.objectStore(LIB).put(state); tx.objectStore(CIDX).put(contiIndexOf(state)); }
         tx.oncomplete = res; tx.onerror = () => rej(tx.error);
       });
       const t = new Date();
@@ -542,8 +641,22 @@
         rq.onsuccess = () => res(rq.result || []);
         rq.onerror = () => rej(rq.error);
       }));
+      await splitOutImages();
     } catch (e) { sheetCache = []; }
     return sheetCache;
+  }
+  // Records written before the split still carry the full picture. Move it to the images store and
+  // leave a thumbnail behind. The image is written first, so an interrupted run just retries.
+  async function splitOutImages() {
+    const old = sheetCache.filter(r => r.src);
+    for (const rec of old) {
+      const src = rec.src;
+      await putImage(rec.id, src);
+      rec.thumb = rec.thumb || await makeThumb(src);
+      delete rec.src;
+      await putSheet(rec);
+    }
+    if (old.length) renderSheetLib();
   }
   async function putSheet(rec) {
     const i = sheetCache.findIndex(s => s.id === rec.id);
@@ -581,14 +694,16 @@
     const hit = sheetCache.find(s => s.fp === fp);
     if (hit) { im.libId = hit.id; return; }
     const rec = {
-      id: uid(), fp, src, w: im.w, h: im.h,
+      id: uid(), fp, w: im.w, h: im.h,
       title: (song.title || '').trim(), key: im.keyFrom || '', forms: [],
-      savedAt: Date.now(), renamed: false,
+      savedAt: Date.now(), renamed: false, useCount: 0, thumb: '',
     };
     const twin = twinOf(rec);
     if (twin) { im.libId = twin.id; return; }   // already have this song in this key
     im.libId = rec.id;
-    putSheet(rec).then(renderSheetLib);
+    // the picture goes to its own store; the card keeps only a thumbnail
+    putImage(rec.id, src);
+    makeThumb(src).then(t => { rec.thumb = t; putSheet(rec).then(renderSheetLib); });
   }
   // One sheet per title+key. Only when BOTH are filled in — two untitled sheets, or two sheets whose
   // keys nobody has labelled yet, may well be different arrangements, and folding those together
@@ -608,8 +723,9 @@
     const all = [...(drop.forms || []), ...(keep.forms || [])].sort((a, b) => (b.at || 0) - (a.at || 0));
     const seen = new Set();
     keep.forms = all.filter(f => !seen.has(f.text) && seen.add(f.text)).slice(0, FORM_KEEP);
+    keep.useCount = (keep.useCount || 0) + (drop.useCount || 0);
     putSheet(keep);
-    removeSheet(drop.id);
+    removeSheet(drop.id); removeImage(drop.id);
     return keep;
   }
 
@@ -655,18 +771,49 @@
   // Keep the transposed copy as its own sheet as well: next week the team pulls "내 구주 예수님 - D"
   // straight out of the archive instead of running the key change again.
   function archiveTransposed(song, im) {
-    const fp = sheetFp(im.src);
+    const src = im.src;
+    const fp = sheetFp(src);
     if (sheetCache.some(s => s.fp === fp)) return;
     const rec = {
-      id: uid(), fp, src: im.src, w: im.w, h: im.h,
+      id: uid(), fp, w: im.w, h: im.h,
       title: (song.title || '').trim(), key: im.keyTo || '', forms: [],
-      savedAt: Date.now(), renamed: false,
+      savedAt: Date.now(), renamed: false, useCount: 0, thumb: '',
     };
     if (twinOf(rec)) return;   // this song is already archived in that key
-    putSheet(rec).then(renderSheetLib);
+    putImage(rec.id, src);
+    makeThumb(src).then(t => { rec.thumb = t; putSheet(rec).then(renderSheetLib); });
   }
 
+  // The list reads the index and nothing else. The index is built from the contis once, the first
+  // time this version runs; after that it is kept in step by saveState and deleteConti.
   async function listContis() {
+    try {
+      const db = await openDB();
+      return await new Promise((res, rej) => {
+        const rq = db.transaction(CIDX).objectStore(CIDX).getAll();
+        rq.onsuccess = () => res(rq.result || []);
+        rq.onerror = () => rej(rq.error);
+      });
+    } catch (e) { return []; }
+  }
+  async function buildContiIndex() {
+    try {
+      const db = await openDB();
+      const done = await new Promise((res, rej) => {
+        const rq = db.transaction(STORE).objectStore(STORE).get('cidxBuilt');
+        rq.onsuccess = () => res(!!rq.result); rq.onerror = () => rej(rq.error);
+      });
+      if (done) return;
+      const full = await listContisFull();
+      await new Promise((res, rej) => {
+        const tx = db.transaction([CIDX, STORE], 'readwrite');
+        full.forEach(c => tx.objectStore(CIDX).put(contiIndexOf(c)));
+        tx.objectStore(STORE).put(true, 'cidxBuilt');
+        tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+      });
+    } catch (e) { }
+  }
+  async function listContisFull() {
     try {
       const db = await openDB();
       return await new Promise((res, rej) => {
@@ -690,8 +837,9 @@
     try {
       const db = await openDB();
       await new Promise((res, rej) => {
-        const tx = db.transaction(LIB, 'readwrite');
+        const tx = db.transaction([LIB, CIDX], 'readwrite');
         tx.objectStore(LIB).delete(id);
+        tx.objectStore(CIDX).delete(id);
         tx.oncomplete = res; tx.onerror = () => rej(tx.error);
       });
     } catch (e) { /* ignore */ }
@@ -719,12 +867,14 @@
     render(); saveState();   // saveState, not scheduleSave: no history entry for merely opening it
   }
   // ---------- sheet archive UI ----------
-  function openSheetView(rec) {
+  async function openSheetView(rec) {
     const lb = $('#lightbox');
     $('.lb-name', lb).textContent = sheetName(rec);
-    $('.lb-body img', lb).src = rec.src;
+    $('.lb-body img', lb).src = rec.thumb || '';   // something to look at while the full one loads
     $('.lb-body', lb).scrollTop = 0;
     lb.hidden = false;
+    const full = await getImage(rec.id);
+    if (!lb.hidden && full) $('.lb-body img', lb).src = full;
   }
   function closeSheetView() {
     const lb = $('#lightbox');
@@ -757,11 +907,16 @@
     const ul = $('#sheet-list'); if (!ul) return;
     const q = $('#sheet-q')?.value.trim() || '';
     // filed by the song's initial, and inside a group by name — an archive is looked up by title
+    const sort = $('#sheet-sort')?.value || 'name';
+    const byName = (a, b) => sheetName(a).localeCompare(sheetName(b), 'ko');
+    const order = sort === 'used' ? (a, b) => (b.usedAt || b.savedAt || 0) - (a.usedAt || a.savedAt || 0) || byName(a, b)
+      : sort === 'count' ? (a, b) => (b.useCount || 0) - (a.useCount || 0) || byName(a, b)
+        : byName;
     const hits = sheetCache.filter(r => sheetMatches(r, q));
-    const list = hits.filter(r => !choFilter || initialOf(r.title) === choFilter)
-      .sort((a, b) => sheetName(a).localeCompare(sheetName(b), 'ko'));
+    const list = hits.filter(r => !choFilter || initialOf(r.title) === choFilter).sort(order);
     $('#sheet-count').textContent = sheetCache.length ? sheetCache.length + '장' : '';
     renderChoBar(hits);
+    renderRecent(q, sort);
     ul.innerHTML = '';
     if (!list.length) {
       ul.innerHTML = `<li class="none">${sheetCache.length ? '찾는 악보가 없습니다.' : '콘티에 악보를 넣으면 여기 자동으로 쌓입니다.'}</li>`;
@@ -770,6 +925,10 @@
     // same name twice can only survive when the key is blank — say so instead of leaving it puzzling
     const nameCount = {};
     sheetCache.forEach(r => { const n = sheetName(r); nameCount[n] = (nameCount[n] || 0) + 1; });
+
+    // the ㄱㄴㄷ folds only make sense while the list is in name order; sorted by use, the order
+    // runs across initials and the groups would be meaningless
+    if (sort !== 'name') { list.forEach(rec => renderSheetRow(ul, rec, nameCount)); return; }
 
     const groups = [];
     list.forEach(r => {
@@ -793,6 +952,34 @@
       ul.appendChild(head);
       if (on) g.items.forEach(rec => renderSheetRow(ul, rec, nameCount));
     });
+  }
+
+  // the handful of sheets the team reached for most recently, so the common case needs no scrolling
+  function renderRecent(q, sort) {
+    const box = $('#sheet-recent'); if (!box) return;
+    const recent = sheetCache.filter(r => r.usedAt).sort((a, b) => b.usedAt - a.usedAt).slice(0, 5);
+    box.innerHTML = '';
+    if (q || choFilter || sort !== 'name' || recent.length < 2) return;   // would only repeat the list
+    box.innerHTML = '<div class="rc-lab">최근 쓴 악보</div>';
+    const row = document.createElement('div');
+    row.className = 'rc-row';
+    recent.forEach(rec => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'rc-item'; b.title = sheetName(rec);
+      b.innerHTML = `<img src="${rec.thumb || ''}" alt=""><span>${escapeHtml(sheetName(rec))}</span>`;
+      b.addEventListener('click', () => { peekSheet = rec.id; openCho.add(initialOf(rec.title)); renderSheetLib(); });
+      row.appendChild(b);
+    });
+    box.appendChild(row);
+  }
+
+  // how much room the archive takes, so nobody has to guess
+  async function renderSheetSize() {
+    const el = $('#sheet-size'); if (!el || !navigator.storage?.estimate) return;
+    try {
+      const { usage } = await navigator.storage.estimate();
+      el.textContent = usage ? `${(usage / 1048576).toFixed(0)}MB 사용 중` : '';
+    } catch (e) { el.textContent = ''; }
   }
 
   // the ㄱㄴㄷ strip above the list; only initials that actually exist are offered
@@ -821,12 +1008,12 @@
       const dup = nameCount[sheetName(rec)] > 1;
       const open = peekSheet === rec.id;
       li.innerHTML = `
-        <img class="sh-th" src="${rec.src}" alt="${escapeHtml(sheetName(rec))} 미리보기" tabindex="0" role="button" aria-expanded="${open}" title="${open ? '미리보기 닫기' : '눌러서 미리보기'}">
+        <img class="sh-th" src="${rec.thumb || ''}" alt="${escapeHtml(sheetName(rec))} 미리보기" tabindex="0" role="button" aria-expanded="${open}" title="${open ? '미리보기 닫기' : '눌러서 미리보기'}">
         <input class="sh-name" type="text" value="${escapeHtml(rec.title)}" placeholder="곡 제목" aria-label="곡 제목">
         <select class="sh-key" aria-label="키"><option value="">키 없음</option>${KEYS.map(x => `<option value="${x}" ${x === rec.key ? 'selected' : ''}>${KEY_LABEL[x] || x}</option>`).join('')}</select>
         <span class="sh-form" title="${escapeHtml((rec.forms || []).map(f => f.text).join('\n'))}">${(rec.forms || []).length ? `송폼 ${rec.forms.length}개 · ${escapeHtml(rec.forms[0].text)}` : '쓴 송폼 없음'}</span>
         <span class="acts">${dup ? '<span class="dup" title="이름이 같은 악보가 또 있습니다. 키를 정해 주면 하나로 합쳐집니다.">이름 겹침</span>' : ''}<button type="button" class="d" title="이 악보 지우기">삭제</button></span>
-        ${open ? `<div class="peek"><img class="sh-big" src="${rec.src}" alt="${escapeHtml(sheetName(rec))}" title="눌러서 화면 가득 보기"></div>` : ''}`;
+        ${open ? `<div class="peek"><img class="sh-big" src="${rec.thumb || ''}" alt="${escapeHtml(sheetName(rec))}" title="눌러서 화면 가득 보기"></div>` : ''}`;
       const save = () => {
         rec.title = $('.sh-name', li).value.trim();
         rec.key = $('.sh-key', li).value;
@@ -838,12 +1025,17 @@
       const togglePeek = () => { peekSheet = open ? null : rec.id; renderSheetLib(); };
       $('.sh-th', li).addEventListener('click', togglePeek);
       $('.sh-th', li).addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); togglePeek(); } });
-      $('.sh-big', li)?.addEventListener('click', () => openSheetView(rec));
+      const big = $('.sh-big', li);
+      if (big) {
+        big.addEventListener('click', () => openSheetView(rec));
+        // swap the thumbnail for the real thing once it arrives — the row stays usable meanwhile
+        getImage(rec.id).then(src => { if (src && big.isConnected) big.src = src; });
+      }
       $('.sh-name', li).addEventListener('change', save);
       $('.sh-key', li).addEventListener('change', save);
       $('.acts .d', li).addEventListener('click', async () => {
         if (!confirm(`"${sheetName(rec)}"를 악보 보관함에서 지울까요? (지금 콘티에 들어간 악보는 그대로입니다)`)) return;
-        await removeSheet(rec.id); renderSheetLib();
+        await removeSheet(rec.id); await removeImage(rec.id); renderSheetLib();
       });
       ul.appendChild(li);
     }
@@ -894,13 +1086,19 @@
         item.className = 'pk-item';
         const n = (rec.forms || []).length;
         item.innerHTML = `
-          <button type="button" class="pk-use" title="이 악보를 넣습니다"><img src="${rec.src}" alt=""><span>${escapeHtml(sheetName(rec))}</span></button>
+          <button type="button" class="pk-use" title="이 악보를 넣습니다"><img src="${rec.thumb || ''}" alt=""><span>${escapeHtml(sheetName(rec))}</span></button>
           ${n ? `<button type="button" class="pk-form" title="이 악보에서 썼던 송폼 ${n}개 보기">송폼 ${n} ▾</button>` : '<span class="pk-noform">송폼 없음</span>'}`;
-        $('.pk-use', item).addEventListener('click', () => {
+        $('.pk-use', item).addEventListener('click', async () => {
+          const btn = $('.pk-use', item);
+          btn.disabled = true;
+          const src = await getImage(rec.id);
+          btn.disabled = false;
+          if (!src) { alert('악보 그림을 불러오지 못했습니다.'); return; }
+          if (!state.songs.includes(song)) return;   // the song may be gone by now
           // carry the archived key onto the image, or syncSheetMeta would read a blank key back
           // out of it and wipe the record's own key ("내 구주 예수님 - D" → "내 구주 예수님")
-          song.images.push({ src: rec.src, w: rec.w, h: rec.h, top: 0, bottom: 0, scale: 1, joinPrev: false, libId: rec.id, keyFrom: rec.key || undefined });
-          rec.usedAt = Date.now(); putSheet(rec);
+          song.images.push({ src, w: rec.w, h: rec.h, top: 0, bottom: 0, scale: 1, joinPrev: false, libId: rec.id, keyFrom: rec.key || undefined });
+          rec.usedAt = Date.now(); rec.useCount = (rec.useCount || 0) + 1; putSheet(rec);
           render(); scheduleSave();
         });
         $('.pk-form', item)?.addEventListener('click', () => {
@@ -929,26 +1127,37 @@
     $('#lib-count').textContent = list.length ? list.length + '개' : '';
     if (!list.length) { ul.innerHTML = '<li class="none">아직 보관된 콘티가 없습니다.</li>'; return; }
 
-    // one fold per month, newest first; the newest month starts open so the list is useful at a glance
-    const months = [];
+    // year, then month inside it — two years of weekly contis is 24 month folds in a flat list
+    const years = [];
     list.forEach(c => {
-      const k = monthKey(c.updatedAt);
-      const g = months.find(x => x.key === k) || (months.push({ key: k, items: [] }), months[months.length - 1]);
-      g.items.push(c);
+      const yk = String(new Date(c.updatedAt || 0).getFullYear()), mk = monthKey(c.updatedAt);
+      const y = years.find(x => x.key === yk) || (years.push({ key: yk, months: [] }), years[years.length - 1]);
+      const m = y.months.find(x => x.key === mk) || (y.months.push({ key: mk, items: [] }), y.months[y.months.length - 1]);
+      m.items.push(c);
     });
-    if (!openMonths) openMonths = new Set(months.length ? [months[0].key] : []);
-
-    months.forEach(g => {
-      const on = openMonths.has(g.key);
-      const head = document.createElement('li');
-      head.className = 'group';
-      head.innerHTML = `<button type="button" class="g-head" aria-expanded="${on}"><span class="g-chev">${on ? '▾' : '▸'}</span>${monthLabel(g.key)}<span class="g-n">${g.items.length}</span></button>`;
-      $('.g-head', head).addEventListener('click', () => {
-        if (on) openMonths.delete(g.key); else openMonths.add(g.key);
+    if (!openMonths) {
+      openMonths = new Set();
+      if (years[0]) { openMonths.add('y' + years[0].key); if (years[0].months[0]) openMonths.add(years[0].months[0].key); }
+    }
+    const fold = (key, label, n, depth) => {
+      const on = openMonths.has(key);
+      const li = document.createElement('li');
+      li.className = 'group' + (depth ? ' sub' : '');
+      li.innerHTML = `<button type="button" class="g-head" aria-expanded="${on}"><span class="g-chev">${on ? '▾' : '▸'}</span>${label}<span class="g-n">${n}</span></button>`;
+      $('.g-head', li).addEventListener('click', () => {
+        if (on) openMonths.delete(key); else openMonths.add(key);
         renderLibrary();
       });
-      ul.appendChild(head);
-      if (on) g.items.forEach(c => renderContiRow(ul, c));
+      ul.appendChild(li);
+      return on;
+    };
+    years.forEach(y => {
+      const total = y.months.reduce((a, m) => a + m.items.length, 0);
+      if (!fold('y' + y.key, y.key + '년', total, 0)) return;
+      y.months.forEach(m => {
+        if (!fold(m.key, monthLabel(m.key).split(' ')[1], m.items.length, 1)) return;
+        m.items.forEach(c => renderContiRow(ul, c));
+      });
     });
   }
 
@@ -957,15 +1166,12 @@
       const cur = c.id === state.id;
       const li = document.createElement('li');
       li.className = cur ? 'cur' : '';
-      // every sheet is a page unless it was told to share the one before it
-      const pages = c.songs.reduce((n, s, i) => {
-        const joined = (s.joinPrev && i ? 1 : 0) + s.images.filter((im, k) => k > 0 && im && im.joinPrev).length;
-        return n + Math.max(1, s.images.length) - joined;
-      }, 0);
+      const pages = c.pages || 0;
       const open = peekConti === c.id;
+      const thumbOf = id => (sheetCache.find(s => s.id === id) || {}).thumb || '';
       li.innerHTML = `
         <button type="button" class="t" aria-expanded="${open}">${escapeHtml(c.title || '(이름 없음)')}${cur ? '<span class="tag">지금 열림</span>' : ''}</button>
-        <span class="m">${fmtDate(c.updatedAt || 0)} · ${c.songs.length}곡 · ${pages}쪽</span>
+        <span class="m">${fmtDate(c.updatedAt || 0)} · ${(c.songs || []).length}곡 · ${pages}쪽</span>
         <span class="acts">
           ${cur ? '' : '<button data-a="open">열기</button>'}
           <button data-a="dup" title="이 콘티를 복사해 새 콘티로 엽니다">복제</button>
@@ -975,7 +1181,7 @@
           <div class="peek-song">
             <div class="peek-head"><b>${n + 1}</b> ${escapeHtml(s.title || '제목 없음')}</div>
             <div class="peek-form">${s.form ? escapeHtml(s.form) : '송폼 없음'}</div>
-            <div class="peek-shots">${s.images.map(im => `<img src="${im.src}" alt="">`).join('') || '<span class="peek-none">악보 없음</span>'}</div>
+            <div class="peek-shots">${(s.libIds || []).map(id => thumbOf(id)).filter(Boolean).map(t => `<img src="${t}" alt="">`).join('') || '<span class="peek-none">악보 없음</span>'}</div>
           </div>`).join('') || '<p class="peek-none">빈 콘티입니다.</p>'}</div>` : ''}`;
       $('.t', li).addEventListener('click', () => { peekConti = open ? null : c.id; renderLibrary(); });
       li.querySelectorAll('.acts button').forEach(b => b.addEventListener('click', async () => {
@@ -1967,6 +2173,8 @@
     $('#conti-title').focus();
   });
   $('#sheet-q').addEventListener('input', renderSheetLib);
+  $('#sheet-sort').addEventListener('change', renderSheetLib);
+  $('#sheetlib').addEventListener('toggle', () => { if ($('#sheetlib').open) renderSheetSize(); });
   $('#lib').addEventListener('toggle', () => { if ($('#lib').open) renderLibrary(); });
   $('.lb-close').addEventListener('click', closeSheetView);
   $('#lightbox').addEventListener('click', e => { if (e.target.tagName !== 'IMG') closeSheetView(); });
@@ -2031,6 +2239,7 @@
     if (!state.songs.length) state.songs = [newSong()];
     $('#conti-title').value = state.title || '';
     await loadSheets();
+    await buildContiIndex();
     // sheets already sitting in this conti predate the archive — put them in so nothing is missing
     state.songs.forEach(song => song.images.forEach(im => archiveSheet(song, im)));
     // history needs the state as it was opened, or the first edit after a reload cannot be undone
