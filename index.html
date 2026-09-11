@@ -167,6 +167,11 @@
   .acct input { width: 100%; padding: 6px 8px; font-size: 12px; }
   .acct .row { display: flex; gap: 6px; }
   .acct .row .btn { flex: 1; font-size: 12px; padding: 6px; }
+  .acct .ac-pw-box { border-top: 1px solid var(--line); padding-top: 6px; }
+  .acct .ac-pw-box summary { font-size: 11px; color: var(--muted); cursor: pointer; }
+  .acct .ac-pw-box summary:hover { color: var(--ink); }
+  .acct .ac-pw-box input { margin-top: 6px; }
+  .acct .ac-pw-box .row { margin-top: 6px; }
   .acct .msg { font-size: 11px; line-height: 1.5; color: var(--muted); }
   .acct .msg.bad { color: var(--danger); }
   .sheet-cloud { font-size: 11px; color: var(--muted); text-align: center; margin-top: 6px; }
@@ -948,16 +953,25 @@
       $('#ac-out').addEventListener('click', async () => { await sb.auth.signOut(); });
       return;
     }
+    // 메일 링크가 먼저다. 폰에서 비밀번호를 새로 만들어 외우는 것보다, 주소 한 줄 적고
+    // 메일에서 한 번 누르는 쪽이 훨씬 짧다. 비밀번호 쪽은 접어 두고 원하는 사람만 편다.
     box.innerHTML = `
       <form id="ac-form">
         <div class="lab">팀 악보 보관함</div>
         <div class="sub">로그인하면 팀이 모은 악보를 같이 씁니다. 콘티는 각자 것입니다.</div>
         <input type="email" id="ac-email" placeholder="이메일" autocomplete="email" required>
-        <input type="password" id="ac-pw" placeholder="비밀번호 (6자 이상)" autocomplete="current-password" required minlength="6">
         <div class="row">
-          <button type="submit" class="btn primary">로그인</button>
-          <button type="button" class="btn" id="ac-join">가입</button>
+          <button type="submit" class="btn primary">메일로 로그인 링크 받기</button>
         </div>
+        <div class="sub">처음이면 이것으로 가입까지 됩니다. 비밀번호는 없어도 됩니다.</div>
+        <details class="ac-pw-box">
+          <summary>비밀번호로 로그인</summary>
+          <input type="password" id="ac-pw" placeholder="비밀번호 (6자 이상)" autocomplete="current-password" minlength="6">
+          <div class="row">
+            <button type="button" class="btn" id="ac-in">로그인</button>
+            <button type="button" class="btn" id="ac-join">가입</button>
+          </div>
+        </details>
         <div class="msg" id="ac-msg"></div>
       </form>`;
     const msg = $('#ac-msg');
@@ -965,8 +979,18 @@
     const creds = () => ({ email: $('#ac-email').value.trim(), password: $('#ac-pw').value });
     $('#ac-form').addEventListener('submit', async e => {
       e.preventDefault();
+      const email = $('#ac-email').value.trim();
+      if (!email) { say('이메일을 적어 주세요.', true); return; }
+      say('메일 보내는 중…');
+      const { error } = await sb.auth.signInWithOtp({ email });
+      if (error) { say(loginError(error), true); return; }
+      say(`${email} 로 로그인 링크를 보냈습니다. 메일에서 그 링크를 누르면 바로 들어옵니다.`);
+    });
+    $('#ac-in').addEventListener('click', async () => {
+      const c = creds();
+      if (!c.password) { say('비밀번호를 적어 주세요.', true); return; }
       say('로그인 중…');
-      const { error } = await sb.auth.signInWithPassword(creds());
+      const { error } = await sb.auth.signInWithPassword(c);
       if (error) say(loginError(error), true);
     });
     $('#ac-join').addEventListener('click', async () => {
@@ -982,6 +1006,9 @@
   const loginError = e => {
     const m = (e && e.message || '').toLowerCase();
     if (m.includes('invalid login')) return '이메일이나 비밀번호가 맞지 않습니다.';
+    if (m.includes('email') && m.includes('invalid')) return '이메일 주소를 다시 확인해 주세요.';
+    // 무료 플랜은 Supabase 공용 메일 서버라 시간당 몇 통으로 막힌다
+    if (m.includes('security purposes') || m.includes('email rate')) return '메일을 조금 전에 보냈습니다. 1분쯤 뒤에 다시 눌러 주세요.';
     if (m.includes('already registered')) return '이미 가입된 이메일입니다. 로그인을 눌러 주세요.';
     if (m.includes('confirm')) return '메일에서 주소 확인을 먼저 눌러 주세요.';
     if (m.includes('rate')) return '잠시 뒤에 다시 시도해 주세요.';
