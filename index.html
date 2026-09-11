@@ -141,6 +141,17 @@
   .lib .peek-shots img { width: 42px; height: 56px; object-fit: cover; object-position: top; background: #fff; border: 1px solid var(--line); border-radius: 3px; }
   .lib .peek-none { font-size: 11px; color: var(--muted); }
   .sheets .sh-big { width: 100%; height: auto; background: #fff; border: 1px solid var(--line); border-radius: 4px; cursor: zoom-in; display: block; }
+  /* month / initial folds */
+  .lib li.group { display: block; padding: 0; border-bottom: 1px solid var(--line); background: var(--panel-2); }
+  .lib .g-head { display: flex; align-items: center; gap: 6px; width: 100%; padding: 7px 12px; background: none; border: 0; font: inherit; font-size: 12px; font-weight: 600; color: var(--ink); cursor: pointer; text-align: left; }
+  .lib .g-head:hover { background: var(--panel); }
+  .lib .g-chev { color: var(--accent); width: 1em; }
+  .lib .g-n { margin-left: auto; font-size: 11px; font-weight: 400; color: var(--muted); font-family: var(--font-mono); }
+  .cho-bar { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 8px; }
+  .cho-bar:empty { display: none; }
+  .cho { min-width: 22px; padding: 2px 5px; font-size: 11px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); color: var(--muted); cursor: pointer; }
+  .cho:hover { color: var(--ink); border-color: var(--ink); }
+  .cho.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 
   /* archived sheets */
   .sheet-tools { padding: 8px 12px; border-top: 1px solid var(--line); background: var(--panel); }
@@ -223,13 +234,16 @@
   .thumb.cropped::after { content: '✂'; position: absolute; right: 2px; bottom: 2px; font-size: 10px; background: rgba(31,36,24,.75); color: #fff; padding: 0 3px; border-radius: 3px; }
 
   .drop {
+    position: relative;
     display: flex; align-items: center; justify-content: center; gap: 8px;
     border: 1.5px dashed var(--line-strong); border-radius: 8px; padding: 12px; text-align: center; color: var(--muted); font-size: 12px; cursor: pointer;
     transition: border-color .15s, color .15s, background .15s; background: var(--panel-2);
   }
   .drop::before { content: '＋'; font-size: 14px; color: var(--accent); }
   .drop:hover, .drop.over { border-color: var(--accent); color: var(--accent-soft-ink); background: var(--accent-soft); }
-  .drop input { display: none; }
+  /* not display:none — that drops the file input out of the tab order and the drop zone becomes
+     unreachable without a mouse */
+  .drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 
   /* folded song card: only the head and a one-line summary stay */
   .fold-summary { display: none; font-size: 12px; color: var(--muted); padding: 0 2px 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -359,7 +373,10 @@
 
     <details class="box lib sheets" id="sheetlib">
       <summary><span>악보 보관함</span><span class="n" id="sheet-count"></span><span class="chev">▼</span></summary>
-      <div class="sheet-tools"><input type="search" id="sheet-q" placeholder="곡 제목이나 키로 찾기"></div>
+      <div class="sheet-tools">
+        <input type="search" id="sheet-q" placeholder="곡 제목이나 키로 찾기">
+        <div class="cho-bar" id="cho-bar"></div>
+      </div>
       <ul id="sheet-list"></ul>
     </details>
 
@@ -431,6 +448,8 @@
         };
         rq.onsuccess = () => res(rq.result);
         rq.onerror = () => rej(rq.error);
+        // another tab still on the old version would otherwise leave this promise hanging forever
+        rq.onblocked = () => rej(new Error('blocked'));
       } catch (e) { rej(e); }
     });
   }
@@ -501,7 +520,9 @@
       });
       const t = new Date();
       $('#saved-at').textContent = '저장됨 ' + t.toTimeString().slice(0, 5);
-      renderLibrary();
+      // redrawing the library re-reads every stored conti, images and all — only worth it while
+      // the list is actually on screen; opening it refreshes anyway
+      if ($('#lib').open) renderLibrary();
     } catch (e) {
       $('#saved-at').textContent = '저장 안 됨';
     }
@@ -549,7 +570,10 @@
   }
   // archive a sheet the moment it enters a conti; the same picture is never stored twice
   function archiveSheet(song, im) {
-    if (im.libId && sheetCache.some(s => s.id === im.libId)) return;
+    // any libId at all means this picture has been through the archive once; if the record is gone
+    // the user deleted it on purpose, and re-creating it on the next reload would undo that
+    if (im.libId) return;
+    if (!im.w || !im.h) return;   // dimensions still being probed — archive it once they are known
     // the archived picture is the sheet as it came in — `orig` holds it once a key change replaced
     // `src` — so its key is the one it was written in
     const src = im.orig || im.src;
@@ -595,12 +619,14 @@
     song.images.forEach(im => {
       const rec = sheetCache.find(s => s.id === im.libId);
       if (!rec || rec.renamed) return;
-      const title = (song.title || '').trim(), key = im.keyFrom || '';
+      const title = (song.title || '').trim();
+      const key = im.keyFrom || rec.key || '';   // never blank a key the record already carries
       if (rec.title === title && rec.key === key) return;
       rec.title = title; rec.key = key;
       putSheet(rec); touched = true;
-      const keep = mergeTwin(rec);
-      if (keep) im.libId = keep.id;
+      // deliberately NOT merging here: this runs on every keystroke of the song title, and a title
+      // that passes through an existing name mid-word would delete that sheet for good. Merging is
+      // done where the name is settled — archiving a new sheet, or renaming one in the archive.
     });
     if (touched) renderSheetLib();
   }
@@ -706,13 +732,36 @@
     $('.lb-body img', lb).src = '';   // let the browser drop the decoded copy
   }
 
-  let peekSheet = null;   // sheet id whose preview is expanded in the archive list
+  let peekSheet = null;      // sheet id whose preview is expanded in the archive list
+  let openCho = new Set();   // initials unfolded in the archive list
+  let choFilter = '';        // when set, only sheets starting with this initial are listed
+
+  // Korean syllables carry their initial consonant in the code point; the tense ones (ㄲㄸㅃㅆㅉ)
+  // are filed under their plain partner, the way a Korean index reads.
+  const LEADS = ['ㄱ', 'ㄲ', 'ㄴ', 'ㄷ', 'ㄸ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅃ', 'ㅅ', 'ㅆ', 'ㅇ', 'ㅈ', 'ㅉ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
+  const LEAD_FOLD = { 'ㄲ': 'ㄱ', 'ㄸ': 'ㄷ', 'ㅃ': 'ㅂ', 'ㅆ': 'ㅅ', 'ㅉ': 'ㅈ' };
+  const CHO_ORDER = ['ㄱ', 'ㄴ', 'ㄷ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅅ', 'ㅇ', 'ㅈ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
+  function initialOf(title) {
+    const s = (title || '').trim();
+    if (!s) return '#';
+    const c = s.codePointAt(0);
+    if (c >= 0xAC00 && c <= 0xD7A3) { const l = LEADS[Math.floor((c - 0xAC00) / 588)]; return LEAD_FOLD[l] || l; }
+    if (c >= 0x3131 && c <= 0x314E) return LEAD_FOLD[s[0]] || s[0];   // a bare jamo typed on its own
+    if (/[a-zA-Z]/.test(s[0])) return s[0].toUpperCase();
+    return '#';
+  }
+  const choRank = ch => { const i = CHO_ORDER.indexOf(ch); return i >= 0 ? i : ch === '#' ? 999 : 100 + ch.charCodeAt(0); };
+
   const sheetMatches = (rec, q) => !q || (sheetName(rec) + ' ' + (rec.key || '')).toLowerCase().includes(q.toLowerCase());
   function renderSheetLib() {
     const ul = $('#sheet-list'); if (!ul) return;
     const q = $('#sheet-q')?.value.trim() || '';
-    const list = sheetCache.filter(r => sheetMatches(r, q)).sort((a, b) => (b.usedAt || b.savedAt || 0) - (a.usedAt || a.savedAt || 0));
+    // filed by the song's initial, and inside a group by name — an archive is looked up by title
+    const hits = sheetCache.filter(r => sheetMatches(r, q));
+    const list = hits.filter(r => !choFilter || initialOf(r.title) === choFilter)
+      .sort((a, b) => sheetName(a).localeCompare(sheetName(b), 'ko'));
     $('#sheet-count').textContent = sheetCache.length ? sheetCache.length + '장' : '';
+    renderChoBar(hits);
     ul.innerHTML = '';
     if (!list.length) {
       ul.innerHTML = `<li class="none">${sheetCache.length ? '찾는 악보가 없습니다.' : '콘티에 악보를 넣으면 여기 자동으로 쌓입니다.'}</li>`;
@@ -721,12 +770,58 @@
     // same name twice can only survive when the key is blank — say so instead of leaving it puzzling
     const nameCount = {};
     sheetCache.forEach(r => { const n = sheetName(r); nameCount[n] = (nameCount[n] || 0) + 1; });
-    list.forEach(rec => {
+
+    const groups = [];
+    list.forEach(r => {
+      const k = initialOf(r.title);
+      const g = groups.find(x => x.key === k) || (groups.push({ key: k, items: [] }), groups[groups.length - 1]);
+      g.items.push(r);
+    });
+    groups.sort((a, b) => choRank(a.key) - choRank(b.key));
+    // searching or filtering means the user already narrowed it down — show the results, don't re-hide them
+    const forceOpen = !!q || !!choFilter;
+
+    groups.forEach(g => {
+      const on = forceOpen || openCho.has(g.key);
+      const head = document.createElement('li');
+      head.className = 'group';
+      head.innerHTML = `<button type="button" class="g-head" aria-expanded="${on}"><span class="g-chev">${on ? '▾' : '▸'}</span>${g.key}<span class="g-n">${g.items.length}</span></button>`;
+      $('.g-head', head).addEventListener('click', () => {
+        if (openCho.has(g.key)) openCho.delete(g.key); else openCho.add(g.key);
+        renderSheetLib();
+      });
+      ul.appendChild(head);
+      if (on) g.items.forEach(rec => renderSheetRow(ul, rec, nameCount));
+    });
+  }
+
+  // the ㄱㄴㄷ strip above the list; only initials that actually exist are offered
+  function renderChoBar(hits) {
+    const bar = $('#cho-bar'); if (!bar) return;
+    const present = [...new Set(hits.map(r => initialOf(r.title)))].sort((a, b) => choRank(a) - choRank(b));
+    bar.innerHTML = '';
+    if (present.length < 2) return;   // nothing to narrow down
+    const mk = (label, val) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'cho' + (choFilter === val ? ' on' : '');
+      b.textContent = label;
+      b.addEventListener('click', () => { choFilter = choFilter === val ? '' : val; renderSheetLib(); });
+      return b;
+    };
+    const all = mk('전체', '');
+    all.className = 'cho' + (choFilter ? '' : ' on');
+    bar.appendChild(all);
+    present.forEach(ch => bar.appendChild(mk(ch, ch)));
+  }
+
+  function renderSheetRow(ul, rec, nameCount) {
+    {
       const li = document.createElement('li');
       const dup = nameCount[sheetName(rec)] > 1;
       const open = peekSheet === rec.id;
       li.innerHTML = `
-        <img class="sh-th" src="${rec.src}" alt="" title="${open ? '미리보기 닫기' : '눌러서 미리보기'}">
+        <img class="sh-th" src="${rec.src}" alt="${escapeHtml(sheetName(rec))} 미리보기" tabindex="0" role="button" aria-expanded="${open}" title="${open ? '미리보기 닫기' : '눌러서 미리보기'}">
         <input class="sh-name" type="text" value="${escapeHtml(rec.title)}" placeholder="곡 제목" aria-label="곡 제목">
         <select class="sh-key" aria-label="키"><option value="">키 없음</option>${KEYS.map(x => `<option value="${x}" ${x === rec.key ? 'selected' : ''}>${KEY_LABEL[x] || x}</option>`).join('')}</select>
         <span class="sh-form" title="${escapeHtml((rec.forms || []).map(f => f.text).join('\n'))}">${(rec.forms || []).length ? `송폼 ${rec.forms.length}개 · ${escapeHtml(rec.forms[0].text)}` : '쓴 송폼 없음'}</span>
@@ -740,7 +835,9 @@
         if (mergeTwin(rec)) scheduleSave();   // naming it into an existing sheet folds the two
         renderSheetLib();
       };
-      $('.sh-th', li).addEventListener('click', () => { peekSheet = open ? null : rec.id; renderSheetLib(); });
+      const togglePeek = () => { peekSheet = open ? null : rec.id; renderSheetLib(); };
+      $('.sh-th', li).addEventListener('click', togglePeek);
+      $('.sh-th', li).addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); togglePeek(); } });
       $('.sh-big', li)?.addEventListener('click', () => openSheetView(rec));
       $('.sh-name', li).addEventListener('change', save);
       $('.sh-key', li).addEventListener('change', save);
@@ -749,7 +846,7 @@
         await removeSheet(rec.id); renderSheetLib();
       });
       ul.appendChild(li);
-    });
+    }
   }
 
   // picker shown inside a song card: click a saved sheet to drop it into that song
@@ -800,9 +897,10 @@
           <button type="button" class="pk-use" title="이 악보를 넣습니다"><img src="${rec.src}" alt=""><span>${escapeHtml(sheetName(rec))}</span></button>
           ${n ? `<button type="button" class="pk-form" title="이 악보에서 썼던 송폼 ${n}개 보기">송폼 ${n} ▾</button>` : '<span class="pk-noform">송폼 없음</span>'}`;
         $('.pk-use', item).addEventListener('click', () => {
-          song.images.push({ src: rec.src, w: rec.w, h: rec.h, top: 0, bottom: 0, scale: 1, joinPrev: false, libId: rec.id });
+          // carry the archived key onto the image, or syncSheetMeta would read a blank key back
+          // out of it and wipe the record's own key ("내 구주 예수님 - D" → "내 구주 예수님")
+          song.images.push({ src: rec.src, w: rec.w, h: rec.h, top: 0, bottom: 0, scale: 1, joinPrev: false, libId: rec.id, keyFrom: rec.key || undefined });
           rec.usedAt = Date.now(); putSheet(rec);
-          syncSheetMeta(song);
           render(); scheduleSave();
         });
         $('.pk-form', item)?.addEventListener('click', () => {
@@ -819,14 +917,43 @@
     return box;
   }
 
-  let peekConti = null;   // conti id whose preview is expanded in the library list
+  let peekConti = null;         // conti id whose preview is expanded in the library list
+  let openMonths = null;        // months unfolded; null until the first render picks the newest
+  const monthKey = t => { const d = new Date(t || 0); return `${d.getFullYear()}-${d.getMonth() + 1}`; };
+  const monthLabel = k => { const [y, m] = k.split('-'); return `${y}년 ${m}월`; };
+
   async function renderLibrary() {
     const list = (await listContis()).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
     const ul = $('#lib-list');
     ul.innerHTML = '';
     $('#lib-count').textContent = list.length ? list.length + '개' : '';
     if (!list.length) { ul.innerHTML = '<li class="none">아직 보관된 콘티가 없습니다.</li>'; return; }
+
+    // one fold per month, newest first; the newest month starts open so the list is useful at a glance
+    const months = [];
     list.forEach(c => {
+      const k = monthKey(c.updatedAt);
+      const g = months.find(x => x.key === k) || (months.push({ key: k, items: [] }), months[months.length - 1]);
+      g.items.push(c);
+    });
+    if (!openMonths) openMonths = new Set(months.length ? [months[0].key] : []);
+
+    months.forEach(g => {
+      const on = openMonths.has(g.key);
+      const head = document.createElement('li');
+      head.className = 'group';
+      head.innerHTML = `<button type="button" class="g-head" aria-expanded="${on}"><span class="g-chev">${on ? '▾' : '▸'}</span>${monthLabel(g.key)}<span class="g-n">${g.items.length}</span></button>`;
+      $('.g-head', head).addEventListener('click', () => {
+        if (on) openMonths.delete(g.key); else openMonths.add(g.key);
+        renderLibrary();
+      });
+      ul.appendChild(head);
+      if (on) g.items.forEach(c => renderContiRow(ul, c));
+    });
+  }
+
+  function renderContiRow(ul, c) {
+    {
       const cur = c.id === state.id;
       const li = document.createElement('li');
       li.className = cur ? 'cur' : '';
@@ -864,7 +991,7 @@
         if (a === 'del') { if (!confirm(`"${c.title || '(이름 없음)'}" 콘티를 보관함에서 지울까요?`)) return; await deleteConti(c.id); renderLibrary(); }
       }));
       ul.appendChild(li);
-    });
+    }
   }
 
   // ---------- song form rendering ----------
@@ -911,7 +1038,9 @@
         return (+b.dataset.ratio || 1.4) * (+b.dataset.scale || 1);
       });
       const sum = need.reduce((a, n) => a + n, 0) || 1;
-      const k = Math.min(1, (H - chrome) / (W * sum));
+      // clamp above zero: pile enough sheets onto one page and the bars alone exceed its height,
+      // and a negative scale sets a negative width that the browser drops, wrecking the layout
+      const k = Math.max(0.02, Math.min(1, (H - chrome) / (W * sum)));
       blocks.forEach((b, i) => {
         const sheet = b.querySelector('.sheet');
         const w = W * k * (+b.dataset.scale || 1);
@@ -1002,6 +1131,12 @@
         else if (f.type.startsWith('image/')) added.push(await fileToImage(f));
       } catch (e) { alert('파일을 읽지 못했습니다: ' + f.name); }
     }
+    // a PDF takes seconds to render; by then the user may have deleted this song or opened another
+    // conti, and pushing into the detached object would drop the import without a word
+    if (!state.songs.includes(song)) {
+      if (added.length) alert('악보를 넣는 동안 곡이 없어져서 넣지 못했습니다.');
+      return;
+    }
     added.forEach(im => { song.images.push(im); archiveSheet(song, im); });
     render(); scheduleSave();
   }
@@ -1014,13 +1149,13 @@
       song.images.forEach(im => {
         if (im.scale == null) im.scale = 1;   // sheets saved before the size control existed
         im.joinPrev = !!im.joinPrev;
-        if (!im.w || !im.h) { const p = new Image(); p.onload = () => { im.w = p.width; im.h = p.height; renderPreview(); scheduleSave(); }; p.src = im.src; }
+        if (!im.w || !im.h) { const p = new Image(); p.onload = () => { im.w = p.width; im.h = p.height; archiveSheet(song, im); renderPreview(); scheduleSave(); }; p.src = im.src; }
       });
     });
   }
 
   // cropped render cache: key → dataURL (built lazily, in memory only)
-  const cropCache = new Map();
+  const cropCache = new Map(), CROP_CACHE_MAX = 24;
   function croppedSrc(im, onReady) {
     const t = +im.top || 0, b = +im.bottom || 0;
     if (!t && !b) return im.src;
@@ -1032,6 +1167,9 @@
       const c = document.createElement('canvas');
       c.width = p.width; c.height = Math.max(1, y1 - y0);
       c.getContext('2d').drawImage(p, 0, y0, p.width, c.height, 0, 0, p.width, c.height);
+      // one drag of a crop slider asks for ~120 different crops; without a bound every one of them
+      // stays in memory as a multi-megabyte data URL
+      if (cropCache.size >= CROP_CACHE_MAX) cropCache.delete(cropCache.keys().next().value);
       cropCache.set(key, c.toDataURL('image/jpeg', 0.9));
       onReady && onReady();
     };
@@ -1059,14 +1197,19 @@
     const shadeT = $('.shade.top', box), shadeB = $('.shade.bot', box);
     const [rt, rb, rs] = box.querySelectorAll('input[type=range]');
     const [ot, ob, os] = box.querySelectorAll('output');
+    // Each crop step re-encodes the whole sheet, so redrawing on every tick of a drag stutters and
+    // leaves the preview on its "준비 중" placeholder. The shades and readouts follow the slider
+    // live; the page itself catches up once the pointer pauses.
+    let previewTimer = null;
     function apply(save) {
       let t = +rt.value, b = +rb.value;
       if (t + b > 90) { if (this === rb) b = 90 - t; else t = 90 - b; rt.value = t; rb.value = b; }
       im.top = t; im.bottom = b; im.scale = +rs.value / 100;
       shadeT.style.height = t + '%'; shadeB.style.height = b + '%';
       ot.value = t + '%'; ob.value = b + '%'; os.value = rs.value + '%';
-      renderPreview();
-      if (save) scheduleSave();
+      clearTimeout(previewTimer);
+      if (save) { renderPreview(); scheduleSave(); }
+      else previewTimer = setTimeout(renderPreview, 120);
     }
     [rt, rb, rs].forEach(r => {
       r.addEventListener('input', apply);
@@ -1716,6 +1859,7 @@
 
       wrap.appendChild(el);
     });
+    updateFoldAll();
   }
 
   // ---------- page layout ----------
@@ -1823,6 +1967,7 @@
     $('#conti-title').focus();
   });
   $('#sheet-q').addEventListener('input', renderSheetLib);
+  $('#lib').addEventListener('toggle', () => { if ($('#lib').open) renderLibrary(); });
   $('.lb-close').addEventListener('click', closeSheetView);
   $('#lightbox').addEventListener('click', e => { if (e.target.tagName !== 'IMG') closeSheetView(); });
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#lightbox').hidden) closeSheetView(); });
@@ -1834,6 +1979,10 @@
     if (open) cropTarget = null;
     renderEditor(); scheduleSave();
   });
+  function updateFoldAll() {
+    const b = $('#fold-all'); if (!b) return;
+    b.textContent = state.songs.some(s => !s.folded) ? '모두 접기' : '모두 펼치기';
+  }
   document.addEventListener('keydown', e => {
     if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z') return;
     // inside a text box the browser's own undo is the one the user means
@@ -1890,7 +2039,8 @@
     renderLibrary();
     renderSheetLib();
     // the form font arrives from the CDN after first paint, and it decides how wide the form is
-    document.fonts?.ready.then(() => { fitFormBars($('#pages')); fitPages(); });
+    // the form font decides the bar height, which decides how much room the sheets get
+    document.fonts?.ready.then(() => { const w = $('#pages'); fitFormBars(w); fitSheets(w); fitPages(); });
     if (saved && !saved.id) scheduleSave();
   })();
 })();
