@@ -34,7 +34,13 @@ Covenant 청년부 찬양팀이 매주 쓰는 A4 찬양 콘티 편집기다. 서
   - 되돌리기 스냅샷(`cloneState`)은 구조만 복사하고 **이미지 `src` 문자열은 참조로 공유한다.** `structuredClone`이나 JSON은 그 문자열까지 복사해서 콘티 하나에 수십 MB가 든다.
   - 스냅샷은 변경 후 600ms 쉬면 쌓인다(`markHistory`). 그러지 않으면 타자 한 글자가 한 단계가 된다. 글자 입력칸 안에서는 `Ctrl+Z`를 가로채지 않는다 — 거기선 브라우저 기본 실행취소가 맞다.
   - 곡 단위 "앞 곡과 같은 페이지" 체크박스는 `:scope > .join input`으로 고른다. 자르기 패널 안에도 같은 클래스의 악보 단위 체크박스가 있어서, 그냥 `.join input`으로 고르면 그걸 잡는다.
-- 보관함: IndexedDB `conti-maker`에 저장한다. store는 `state`(key `current`)와 `contis`(keyPath `id`) 두 개다. 새 콘티·열기·복제·삭제를 지원하고, 데이터는 브라우저마다 따로 저장돼 공유되지 않는다.
+- **악보 보관함**: 콘티에 넣은 악보의 **원본**이 자동으로 `sheets` store에 쌓인다(`archiveSheet`). 이름은 `제목 - 키`로 보이고(`sheetName`), 곡 제목을 고치면 따라간다. 보관함에서 직접 고치면 `renamed: true`가 붙어 더는 따라가지 않는다.
+  - 키는 **`keyFrom`**을 쓴다. 보관하는 그림이 원본이기 때문이다(`orig`가 있으면 그게 원본). 키를 바꿔 적용하면 바뀐 그림도 `keyTo` 이름으로 한 장 더 쌓는다(`archiveTransposed`) — 다음 주에 OCR을 다시 돌리지 않고 꺼내 쓰라고.
+  - 같은 그림은 두 번 저장하지 않는다. 지문은 `src.length + ':' + src.slice(-64)`다.
+  - 부를 때는 곡 카드의 `＋ 보관함에서 악보 넣기`(`buildSheetPicker`). 사이드바 `#sheetlib`은 보기·이름 고치기·지우기용이다.
+  - 앱을 열 때 지금 콘티에 있는 악보를 한 번 훑어 보관함에 채운다. 이 기능 이전에 만든 콘티도 비지 않게 하려는 것이다.
+  - 보관함에서 지워도 콘티 안의 악보는 그대로다(서로 복사본이다).
+- 보관함: IndexedDB `conti-maker`(버전 3)에 저장한다. store는 `state`(key `current`), `contis`(keyPath `id`), `sheets`(keyPath `id`) 세 개다. 새 콘티·열기·복제·삭제를 지원하고, 데이터는 브라우저마다 따로 저장돼 공유되지 않는다.
 - **키 바꾸기(♯)**: tesseract.js 5.1.1(CDN)로 코드를 인식하고, 캔버스에 루트와 베이스 글자만 다시 그린다.
 - 디자인: 초록·카키 테마, UI 글꼴은 Pretendard, 송폼 글꼴은 함초롬바탕(`HCR Batang`, 없으면 바탕 → Noto Serif KR), 다크 모드 토큰을 쓴다.
 
