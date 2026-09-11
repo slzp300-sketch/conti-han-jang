@@ -300,7 +300,7 @@
         <dt>송폼 쓰기</dt>
         <dd><code>{C(목소리)}</code>처럼 중괄호로 감싸면 <span class="r">빨간색</span>, 괄호 안 글자는 작게 나옵니다. <code>B*6</code>·<code>C*2</code> 같은 별표는 그대로 나옵니다.</dd>
         <dt>악보 넣기</dt>
-        <dd>이미지나 <b>PDF</b>를 파일 선택·드래그·<code>Ctrl+V</code>로 넣습니다. PDF는 쪽마다 한 장씩 선명하게 들어가서 키 바꾸기가 가장 잘 됩니다. 한 곡에 두 장이면 두 장 다 넣으세요. 같은 송폼이 각 장 위에 붙습니다.</dd>
+        <dd>이미지나 <b>PDF</b>를 파일 선택·드래그·<code>Ctrl+V</code>로 넣습니다. PDF는 쪽마다 한 장씩 선명하게 들어가서 키 바꾸기가 가장 잘 됩니다. 한 곡에 두 장이면 두 장 다 넣으세요. 장이 나뉘면 같은 송폼이 각 장 위에 붙고, 한 페이지에 같이 넣으면 송폼은 위에 한 번만 붙습니다.</dd>
         <dt>자르기 · 크기 <span class="ic">✂</span></dt>
         <dd>악보 썸네일을 누르면 위·아래를 잘라내고 <b>크기</b>도 줄일 수 있습니다. 패널 아래에 <b>인쇄 폭 몇 %</b>로 들어가는지 나오니, 100%가 될 때까지 잘라내면 페이지를 꽉 채웁니다.</dd>
         <dt>키 바꾸기 <span class="ic">♯</span></dt>
@@ -503,7 +503,8 @@
       const H = page.clientHeight - parseFloat(ps.paddingTop) - parseFloat(ps.paddingBottom);
       let chrome = (parseFloat(ps.rowGap) || 0) * (blocks.length - 1);
       const need = blocks.map(b => {
-        chrome += b.querySelector('.form-bar').offsetHeight + (parseFloat(getComputedStyle(b).rowGap) || 0);
+        const bar = b.querySelector('.form-bar');   // absent when this sheet shares the bar above it
+        if (bar) chrome += bar.offsetHeight + (parseFloat(getComputedStyle(b).rowGap) || 0);
         return (+b.dataset.ratio || 1.4) * (+b.dataset.scale || 1);
       });
       const sum = need.reduce((a, n) => a + n, 0) || 1;
@@ -1319,7 +1320,10 @@
     pages.forEach(blocks => {
       const p = document.createElement('article');
       p.className = 'page';
-      blocks.forEach(({ song, i, im, k }) => {
+      blocks.forEach(({ song, i, im, k }, bi) => {
+        // the same song's sheets share one Song Form bar when they sit on the same page; repeating
+        // it is only useful when the sheets land on pages of their own
+        const sameSongAbove = bi > 0 && blocks[bi - 1].song === song;
         const b = document.createElement('div');
         b.className = 'block';
         const name = escapeHtml(song.title || (i + 1) + '번 곡');
@@ -1335,10 +1339,10 @@
           sheet = `<div class="placeholder">${name} 악보</div>`;
         }
         b.innerHTML = `
-          <div class="form-bar">
+          ${sameSongAbove ? '' : `<div class="form-bar">
             <div class="lab">Song Form</div>
             <div class="txt">${renderForm(song.form)}</div>
-          </div>
+          </div>`}
           <div class="sheet">${sheet}</div>`;
         p.appendChild(b);
       });
