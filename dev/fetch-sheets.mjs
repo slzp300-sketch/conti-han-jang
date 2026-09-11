@@ -34,9 +34,11 @@ function parseTitle(raw) {
 async function postSheet(id) {
   const html = await (await get(`${SITE}/${id}`)).text();
   const title = (html.match(/<title>([^<]*)<\/title>/) || [])[1] || `post-${id}`;
-  // the entry images are signed kakaocdn URLs; the first one in the article is the sheet
-  const urls = [...html.matchAll(/https:\/\/blog\.kakaocdn\.net\/[^"'\s\\]+\.(?:png|jpg|jpeg)\?[^"'\s\\]+/g)]
-    .map(m => m[0].replace(/&amp;/g, '&'));
+  // Two eras of uploads sit side by side: newer posts hold a signed blog.kakaocdn.net URL, older
+  // ones a bare t1.daumcdn.net/cfile path with no extension. Read the <img> tags rather than
+  // scanning for file extensions — the sidebar's thumbnails are CSS backgrounds, not <img>.
+  const urls = [...html.matchAll(/<img[^>]+src="(https:\/\/(?:blog\.kakaocdn\.net|t1\.daumcdn\.net)\/[^"]+)"/g)]
+    .map(m => m[1].replace(/&amp;/g, '&'));
   if (!urls.length) return null;
   return { id, ...parseTitle(title), url: urls[0] };
 }
@@ -73,11 +75,13 @@ async function categoryPosts(letter) {
 
 const safe = s => s.replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim();
 
+// the older URLs carry no extension, so read it off the bytes instead of guessing from the path
+const extOf = buf => (buf[0] === 0x89 && buf[1] === 0x50) ? 'png' : (buf[0] === 0xFF && buf[1] === 0xD8) ? 'jpg' : 'bin';
+const nameOf = (hit, buf) => `${safe(hit.song)}${hit.keys[0] ? ` - ${hit.keys[0]}` : ''}.${extOf(buf)}`;
+
 async function save(hit) {
   const buf = Buffer.from(await (await get(hit.url)).arrayBuffer());
-  const key = hit.keys[0] ? ` - ${hit.keys[0]}` : '';
-  const ext = hit.url.includes('.jpg') || hit.url.includes('.jpeg') ? 'jpg' : 'png';
-  const name = `${safe(hit.song)}${key}.${ext}`;
+  const name = nameOf(hit, buf);
   await writeFile(join(OUT, name), buf);
   return { name, kb: Math.round(buf.length / 1024) };
 }
@@ -96,10 +100,10 @@ if (args[0] === '--category') {
     try {
       const hit = await postSheet(id);
       if (!hit) { missed++; console.log(`  [${n + 1}/${ids.length}] ${id}: 악보 없음`); continue; }
-      const key = hit.keys[0] ? ` - ${hit.keys[0]}` : '';
-      const ext = hit.url.includes('.jpg') || hit.url.includes('.jpeg') ? 'jpg' : 'png';
-      const name = `${safe(hit.song)}${key}.${ext}`;
-      if (have.has(name)) { skipped++; console.log(`  [${n + 1}/${ids.length}] ${name} — 이미 있음`); continue; }
+      // the extension is only known once the bytes arrive, so match on the stem
+      const stem = `${safe(hit.song)}${hit.keys[0] ? ` - ${hit.keys[0]}` : ''}.`;
+      const already = [...have].find(f => f.startsWith(stem));
+      if (already) { skipped++; console.log(`  [${n + 1}/${ids.length}] ${already} — 이미 있음`); continue; }
       const r = await save(hit);
       saved++; console.log(`  [${n + 1}/${ids.length}] ${r.name} (${r.kb}KB)`);
     } catch (e) { missed++; console.log(`  [${n + 1}/${ids.length}] ${id}: ${e.message}`); }
