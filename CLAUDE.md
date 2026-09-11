@@ -75,6 +75,7 @@ Covenant 청년부 찬양팀이 매주 쓰는 A4 찬양 콘티 편집기다. 서
   - **콘티 행에는 그림이 없다.** `stripConti`가 악보를 참조로 바꾼다 — 콘티 하나가 몇 MB에서 **450바이트**가 된다. 참조는 `srcId`(보관함 id)와 `srcPath`(파일 경로)를 **둘 다** 적는다. 키를 바꾼 악보는 `srcId`가 바뀐 그림, `origId`가 원본이다(`archiveTransposed`가 둘을 따로 보관하므로 둘 다 지문으로 찾는다). 보관함을 거치지 않은 그림만 `conti` 버킷의 사람별 폴더로 올라간다.
   - **악보를 지울 때 그림 파일은 남긴다.** 콘티가 참조로만 들고 있어서, 파일까지 지우면 그 악보를 쓴 **남의 콘티에서 악보가 소리 없이 사라진다.** 목록에서 사라지는 것이 사용자가 원한 것이고, 남는 파일은 아무도 찾지 못하는 찌꺼기다. 그래서 `srcPath`를 같이 적어 두는 것이고, `hydrateConti`는 카드가 없어도 경로로 그림을 받아 온다.
   - `getConti`는 로그인했으면 **서버 것이 더 새 것일 때만** 서버를 쓴다. 폰에서 고친 것이 PC에서 덮이지 않게 하려는 것이다.
+  - **RLS를 확인할 때 "익명" 클라이언트가 익명이 아니다.** 같은 출처에서 `createClient`를 새로 만들면 supabase-js가 localStorage의 세션을 말없이 복원한다. 그대로 시험하면 로그인한 채로 읽으면서 "익명도 다 보인다"는 잘못된 결론이 나온다(실제로 한 번 그랬다). 반드시 빈 저장소를 물려야 한다: `{ auth: { persistSession: false, detectSessionInUrl: false, storage: { getItem: () => null, setItem: () => {}, removeItem: () => {} } } }`.
   - **서버 없이 확인하려면** `node dev/cloud-test.mjs` → `dev/cloud-test.html`. `index.html`을 복사하면서 CDN 자리에 `dev/mock-supabase.js`를 물린다. 앱 코드에 시험용 갈래를 두지 않으려는 것이다. **가짜 서버는 RLS를 흉내 내지 않는다** — 누가 무엇을 볼 수 있는지는 진짜 서버에서만 확인된다.
 - 보관함: IndexedDB `conti-maker`(버전 4). store는 `state`(key `current`), `contis`, `sheets`, `images`, `contiIndex`다.
   - **무거운 것과 가벼운 것을 갈라 놨다.** 앱을 열 때 읽는 건 `sheets`(카드: 제목·키·송폼·220px 썸네일, 장당 약 20KB)와 `contiIndex`(목록용: 제목·날짜·쪽수·곡별 송폼·악보 id, 콘티당 약 1KB)뿐이다. 원본 그림(`images`, 장당 약 400KB)과 콘티 전체(`contis`, 개당 수 MB)는 실제로 필요할 때만 꺼낸다.
