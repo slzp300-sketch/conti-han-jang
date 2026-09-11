@@ -1329,12 +1329,27 @@
     }
     return out;
   }
+  // A file named "내 구주 예수님 - A.png" carries the song and its key. Use them when the song has
+  // no title yet, so a folder of downloaded sheets lands in the archive already named.
+  function nameFromFile(fileName) {
+    const base = (fileName || '').replace(/\.[a-z0-9]+$/i, '').trim();
+    const m = base.match(/^(.*?)\s*[-–]\s*([A-G][#b♯♭]?)$/);
+    if (!m) return { title: base, key: '' };
+    return { title: m[1].trim(), key: m[2].replace('♭', 'b').replace('♯', '#') };
+  }
+
   async function addImages(song, files, onStatus) {
     const added = [];
     for (const f of [...files]) {
       try {
+        const meta = nameFromFile(f.name);
         if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) added.push(...await pdfToImages(f, onStatus));
-        else if (f.type.startsWith('image/')) added.push(await fileToImage(f));
+        else if (f.type.startsWith('image/')) {
+          const im = await fileToImage(f);
+          if (meta.key && KEYS.includes(meta.key)) im.keyFrom = meta.key;
+          im.fromName = meta.title;
+          added.push(im);
+        }
       } catch (e) { alert('파일을 읽지 못했습니다: ' + f.name); }
     }
     // a PDF takes seconds to render; by then the user may have deleted this song or opened another
@@ -1343,7 +1358,16 @@
       if (added.length) alert('악보를 넣는 동안 곡이 없어져서 넣지 못했습니다.');
       return;
     }
-    added.forEach(im => { song.images.push(im); archiveSheet(song, im); });
+    // the first named file fills an empty song title; anything after that keeps its own name in the
+    // archive but does not fight the user over the song's title
+    added.forEach((im, n) => {
+      const named = im.fromName;
+      if (n === 0 && !(song.title || '').trim() && named) song.title = named;
+      song.images.push(im);
+      // file the sheet under the name on the file, even when this song is called something else
+      archiveSheet(named ? { ...song, title: named } : song, im);
+      delete im.fromName;
+    });
     render(); scheduleSave();
   }
   // older saves stored plain data-URL strings — upgrade them in place
