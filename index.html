@@ -214,6 +214,7 @@
   .cbox { position: absolute; border: 1.5px solid var(--accent); background: rgba(79, 107, 47, .16); padding: 0; cursor: pointer; border-radius: 2px; }
   .cbox:hover { background: rgba(79, 107, 47, .34); }
   .cbox.bad { border-color: var(--danger); background: rgba(185, 67, 47, .18); }
+  .cbox.check { border-color: #c79a1a; background: rgba(214, 170, 40, .22); }
   .cpop { position: absolute; z-index: 5; display: flex; gap: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px; box-shadow: var(--page-shadow); line-height: 1.4; cursor: default; }
   .cpop input { width: 6em; font: inherit; font-family: var(--font-mono); font-size: 13px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel-2); color: var(--ink); }
   .cpop button { font-size: 12px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 4px; padding: 2px 8px; }
@@ -297,7 +298,7 @@
         <dt>자르기 <span class="ic">✂</span></dt>
         <dd>악보 썸네일을 누르면 위·아래를 잘라낼 수 있습니다.</dd>
         <dt>키 바꾸기 <span class="ic">♯</span></dt>
-        <dd>썸네일을 누르고 ♯를 누르면 악보 속 코드를 찾아 다른 키로 바꿔 줍니다. 틀린 코드는 상자를 눌러 고치고, 놓친 건 빈 곳을 눌러 추가하세요.</dd>
+        <dd>썸네일을 누르고 ♯를 누르면 오선 위 코드를 찾아 다른 키로 바꿔 줍니다. <b>원래 키</b>가 맞는지 먼저 확인하세요 — 스캔에서 자주 빠지는 ♭·♯은 그 키에 맞춰 채워 넣고 노란 상자로 표시합니다. 빨간 상자는 못 읽은 것이니 눌러서 고치거나 지우고, 놓친 건 빈 곳을 눌러 추가하세요. 가로 1500px 이상 선명한 이미지일수록 잘 됩니다.</dd>
         <dt>두 곡 한 장</dt>
         <dd>곡 카드 아래 <b>앞 곡과 같은 페이지에 넣기</b>를 켜면 두 곡이 한 장에 들어가고, 잘라낸 높이에 맞춰 자리를 나눕니다.</dd>
         <dt>보관함</dt>
@@ -563,7 +564,7 @@
   // ---------- key change (chord OCR + redraw) ----------
   const KEYS = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
   const KEY_LABEL = { Db: 'D♭ / C#', Eb: 'E♭', Gb: 'G♭ / F#', Ab: 'A♭', Bb: 'B♭' };
-  const SHARP_KEYS = new Set(['C', 'G', 'D', 'A', 'E', 'B']);
+  const SHARP_KEYS = new Set(['G', 'D', 'A', 'E', 'B']);   // C is written with flats (B♭, E♭, A♭ borrowed chords)
   const N_SHARP = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
   const N_FLAT = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
   const PC = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
@@ -573,15 +574,16 @@
     return (n + 12) % 12;
   }
   function spell(pc, targetKey) { return (SHARP_KEYS.has(targetKey) ? N_SHARP : N_FLAT)[pc]; }
-  const ROOT_RE = /^([A-G])([#♯b♭]?)/;
-  // "Dm7/F" → { root:'D', rest:'m7', bass:'F' }; anything odd → null
+  // ---- chord grammar (from the 12-key chord chart: triads, sus4, aug, dim, M7, 7, m7, 6, m6, m7(b5), dim7, plus slash bass) ----
+  const VOCAB = /^(m|M|maj|min|dim|aug|sus|add|\+|-|°|\d|\(|\)|b|#|♭|♯)*$/;
+  const KNOWN = /^(|m|M|maj|min|dim|aug|\+|-|°|sus|sus2|sus4|add2|add4|add9|2|4|5|6|7|9|11|13|M7|maj7|m7|min7|mM7|69|m6|dim7|m7\(?b5\)?|7sus4|7sus|9sus4|M9|maj9|m9|7\(?b9\)?|7\(?#9\)?|7\(?b5\)?|7\(?#5\)?|aug7|\+7|add\(?9\)?|24|sus\(?4\)?|\(?sus4\)?|\(?add2\)?|\(?add9\)?|\(?sus2\)?|\(?add4\)?)$/;
+  // "Dm7/F" → { root:'D', rest:'m7', bass:'F', known:true }; text that cannot be a chord → null
   function parseChord(text) {
-    const m = text.match(/^([A-G])([#♯b♭]?)([^/]*)(?:\/([A-G])([#♯b♭]?))?$/);
+    const m = text.match(/^([A-G])([#♯b♭]?)(.*?)(?:\/([A-G])([#♯b♭]?))?$/);
     if (!m) return null;
     const rest = m[3] || '';
-    const bare = rest.replace(/[()\s]/g, '');
-    if (!/^(m|min|maj|M|dim|aug|\+|°|-)?(2|4|5|6|7|9|11|13)?(?:(?:sus|add|maj|b|#|♭|♯|\+|-)(2|4|5|6|7|9|11|13)?)*$/.test(bare)) return null;
-    return { root: m[1] + m[2], rest, bass: m[4] ? m[4] + m[5] : null };
+    if (!VOCAB.test(rest)) return null;
+    return { root: m[1] + (m[2] || ''), rest, bass: m[4] ? m[4] + (m[5] || '') : null, known: KNOWN.test(rest.replace(/[♭♯]/g, c => c === '♭' ? 'b' : '#')) };
   }
   function transposeChord(parsed, semis, targetKey) {
     const root = spell((pitchClass(parsed.root) + semis) % 12, targetKey);
@@ -593,19 +595,30 @@
     let best = 'C', bestScore = -1;
     KEYS.forEach(k => {
       const t = pitchClass(k), dia = new Set([0, 2, 4, 5, 7, 9].map(x => (t + x) % 12));
-      let sc = 0; roots.forEach((r, i) => { const p = pitchClass(r); if (dia.has(p)) sc += 1; if (p === t) sc += (i === roots.length - 1 ? 2 : 0.5); });
+      let sc = 0; roots.forEach((r, i) => { const p = pitchClass(r); if (dia.has(p)) sc += 1; else sc -= 0.5; if (p === t) sc += (i === roots.length - 1 ? 2 : 0.5); });
       if (sc > bestScore) { bestScore = sc; best = k; }
     });
     return best;
   }
+  // OCR drops ♭/♯ often. In the chosen key, a bare letter that is off-key while its flat/sharp twin is a
+  // strong scale degree (I ii iii IV V vi) almost certainly lost its accidental: B → B♭ in B♭ major, F → F♯ in A.
+  function repairForKey(text, key) {
+    const pr = parseChord(text); if (!pr) return text;
+    const flat = !SHARP_KEYS.has(key), tonic = pitchClass(key);
+    const dia = new Set([0, 2, 4, 5, 7, 9, 11].map(x => (tonic + x) % 12));
+    const strong = new Set([0, 2, 4, 5, 7, 9].map(x => (tonic + x) % 12));
+    const fix = L => { const tw = L + (flat ? 'b' : '#'); return !dia.has(pitchClass(L)) && strong.has(pitchClass(tw)) ? tw : null; };
+    if (pr.root.length === 1) { const tw = fix(pr.root); if (tw) pr.root = tw; }
+    return pr.root + pr.rest + (pr.bass ? '/' + pr.bass : '');
+  }
 
-  // staff lines: rows where ≥30% of pixels are dark, clustered by the sheet's typical line spacing
+  // staff lines: rows where ≥50% of pixels are dark (< 200 — scans are often light grey), clustered by the sheet's typical spacing
   function findStaves(ctx, w, h) {
     const d = ctx.getImageData(0, 0, w, h).data, rows = [];
     for (let y = 0; y < h; y++) {
       let dark = 0;
-      for (let x = 0; x < w; x += 2) if (d[(y * w + x) * 4] < 170) dark++;
-      if (dark > (w / 2) * 0.3) rows.push(y);
+      for (let x = 0; x < w; x += 2) if (d[(y * w + x) * 4] < 200) dark++;
+      if (dark > (w / 2) * 0.5) rows.push(y);
     }
     const lines = [];
     for (const y of rows) { const L = lines[lines.length - 1]; if (L && y - L.y1 <= 2) L.y1 = y; else lines.push({ y0: y, y1: y }); }
@@ -616,7 +629,13 @@
     const near = (a, b) => Math.abs(a - b) < b * 0.4;
     let cl = [];
     const flush = () => {
-      if (cl.length >= 3 && cl[cl.length - 1] - cl[0] <= 4.6 * g) staves.push({ top: cl[0], bottom: Math.max(cl[cl.length - 1], cl[0] + 4 * g) });
+      if (cl.length >= 3 && cl[cl.length - 1] - cl[0] <= 4.6 * g) {
+        // horizontal extent of the staff: first/last dark pixel on its top line
+        const y = Math.round(cl[0]); let x0 = 0, x1 = w - 1;
+        while (x0 < w && d[(y * w + x0) * 4] >= 200) x0++;
+        while (x1 > 0 && d[(y * w + x1) * 4] >= 200) x1--;
+        staves.push({ top: cl[0], bottom: Math.max(cl[cl.length - 1], cl[0] + 4 * g), gap: g, x0, x1 });
+      }
       cl = [];
     };
     ys.forEach(y => {
@@ -624,7 +643,13 @@
     });
     flush();
     return staves;
-}
+  }
+  // greyscale + contrast stretch: kills highlighter colour and paper tint, keeps light grey engraving
+  function toGray(ctx, w, h) {
+    const im = ctx.getImageData(0, 0, w, h), d = im.data;
+    for (let k = 0; k < d.length; k += 4) { let l = 0.299 * d[k] + 0.587 * d[k + 1] + 0.114 * d[k + 2]; l = l < 60 ? 0 : l > 215 ? 255 : (l - 60) * 255 / 155; d[k] = d[k + 1] = d[k + 2] = l; d[k + 3] = 255; }
+    ctx.putImageData(im, 0, 0);
+  }
 
   let ocrWorker = null;
   async function getOcrWorker(onStatus) {
@@ -640,50 +665,76 @@
     }
     onStatus('인식 데이터 준비 중… (처음 한 번만)');
     const w = await Tesseract.createWorker('eng', 1, { logger: m => { if (m.status === 'recognizing text') onStatus(`코드 찾는 중… ${Math.round(m.progress * 100)}%`); } });
-    await w.setParameters({ tessedit_pageseg_mode: '11', tessedit_char_whitelist: 'ABCDEFGmajdisugb#/()0123456789+M' });
+    await w.setParameters({ tessedit_pageseg_mode: '11', tessedit_char_whitelist: 'ABCDEFGmajdinsugb#/()0123456789+-M' });
     ocrWorker = w;
     return w;
   }
 
-  // → tokens: [{ x0,y0,x1,y1, text, syms:[{t,x0,x1,y0,y1}], parsed }]
+  // OCR words → chord tokens. Splits glued words at wide gaps, keeps only text sitting right above a staff
+  // (the chord band), and only text that starts with a chord letter. Every such token is treated as a chord.
+  function wordsToTokens(words, scale, offY, staffIdx, staves) {
+    const out = [];
+    words.forEach(w => {
+      const syms = w.symbols.map(q => ({ t: q.text, x0: q.bbox.x0 / scale, x1: q.bbox.x1 / scale, y0: q.bbox.y0 / scale + offY, y1: q.bbox.y1 / scale + offY }));
+      const groups = []; let cur = [];
+      const flush = () => { if (cur.length) groups.push(cur); cur = []; };
+      syms.forEach((q, k) => { if (k && q.x0 - syms[k - 1].x1 > (q.y1 - q.y0) * 0.45 && /[A-G]/.test(q.t)) flush(); cur.push(q); });
+      flush();
+      groups.forEach(g => {
+        const text = g.map(q => q.t).join('');
+        const y0 = Math.min(...g.map(q => q.y0)), y1 = Math.max(...g.map(q => q.y1)), cy = (y0 + y1) / 2;
+        let st = staffIdx;
+        if (st == null) { const below = staves.filter(s => s.top > cy); if (!below.length) return; st = staves.indexOf(below[0]); }
+        const s = staves[st], staffH = s.bottom - s.top;
+        const dTop = s.top - y1, dBot = st ? y0 - staves[st - 1].bottom : Infinity;
+        // chords sit just above their staff; lyrics (one or two lines) hang under the staff above
+        if (!(dTop <= staffH * 0.8 || (dTop <= staffH * 1.3 && dTop < dBot))) return;
+        if (g[g.length - 1].x1 < s.x0 + s.gap || g[0].x0 > s.x1) return;   // left of the staff (bar numbers) or past its end
+        if (!/^[A-G]/.test(text)) return;               // junk
+        out.push({ x0: g[0].x0, x1: g[g.length - 1].x1, y0, y1, text, raw: text, syms: g, staff: st, manual: false });
+      });
+    });
+    return out;
+  }
+
+  // → { tokens, w, h, img, lowRes }
   async function findChords(src, onStatus) {
     const img = await new Promise((res, rej) => { const p = new Image(); p.onload = () => res(p); p.onerror = rej; p.src = src; });
-    const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+    const W = img.width, H = img.height;
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
     const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0);
-    const staves = findStaves(ctx, c.width, c.height);
+    const staves = findStaves(ctx, W, H);
+    toGray(ctx, W, H);
+    if (!staves.length) return { tokens: [], w: W, h: H, img, lowRes: false, noStaves: true };
+    const gap = staves[0].gap;
     const worker = await getOcrWorker(onStatus);
-    const { data } = await worker.recognize(c);
-    const tokens = [];
-    data.words.forEach(w => {
-      // split a word into tokens at wide gaps (tesseract sometimes glues neighbouring chords together)
-      const syms = w.symbols.map(s => ({ t: s.text, x0: s.bbox.x0, x1: s.bbox.x1, y0: s.bbox.y0, y1: s.bbox.y1 }));
-      let cur = [];
-      const flush = () => { if (cur.length) tokens.push(cur); cur = []; };
-      syms.forEach((s, i) => {
-        if (i && s.x0 - syms[i - 1].x1 > (s.y1 - s.y0) * 0.35 && /[A-G]/.test(s.t)) flush();
-        cur.push(s);
+    const mk = (w, h) => { const k = document.createElement('canvas'); k.width = Math.round(w); k.height = Math.round(h); const x = k.getContext('2d'); x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high'; x.fillStyle = '#fff'; x.fillRect(0, 0, k.width, k.height); return [k, x]; };
+
+    // pass 1: the whole page, upscaled when the engraving is small
+    const s1 = Math.min(3, Math.max(1, 13 / gap));
+    const [p, px] = mk(W * s1, H * s1); px.drawImage(c, 0, 0, p.width, p.height);
+    onStatus('코드 찾는 중… (1/2)');
+    let tokens = wordsToTokens((await worker.recognize(p)).data.words, s1, 0, null, staves);
+
+    // pass 2: each chord band on its own, scaled so letters are ~40px tall; adds only chords pass 1 missed
+    for (let i = 0; i < staves.length; i++) {
+      onStatus(`코드 찾는 중… (2/2, ${i + 1}/${staves.length}단)`);
+      const s = staves[i], staffH = s.bottom - s.top;
+      const y0 = Math.round(Math.max(0, i ? staves[i - 1].bottom + 2 : s.top - 2.2 * staffH)), y1 = Math.round(s.top - gap * 0.5);
+      if (y1 - y0 < 6) continue;
+      const sc = Math.min(4, Math.max(1, 40 / (1.6 * gap)));
+      const [b, bx] = mk(W * sc, (y1 - y0) * sc); bx.drawImage(c, 0, y0, W, y1 - y0, 0, 0, b.width, b.height);
+      const extra = wordsToTokens((await worker.recognize(b)).data.words, sc, y0, i, staves);
+      extra.forEach(t => {
+        const pr = parseChord(t.text); if (!pr || !pr.known) return;
+        if (!tokens.some(u => u.staff === t.staff && Math.min(u.x1, t.x1) - Math.max(u.x0, t.x0) > 0)) tokens.push(t);
       });
-      flush();
-    });
-    const out = [];
-    tokens.forEach(syms => {
-      const text = syms.map(s => s.t).join('');
-      const parsed = parseChord(text);
-      if (!parsed) return;
-      const y0 = Math.min(...syms.map(s => s.y0)), y1 = Math.max(...syms.map(s => s.y1)), cy = (y0 + y1) / 2;
-      const below = staves.filter(s => s.top > cy).map(s => s.top - cy), above = staves.filter(s => s.bottom < cy).map(s => cy - s.bottom);
-      const dTop = below.length ? Math.min(...below) : Infinity, dBot = above.length ? Math.min(...above) : Infinity;
-      if (staves.length && dBot < dTop) return;              // sits under a staff → lyrics, not a chord
-      const staffH = staves.length ? staves[0].bottom - staves[0].top : c.height * 0.03;
-      if (staves.length && dTop > staffH * 3) return;        // far above any staff → title / header text
-      if (y1 - y0 < 8 || y1 - y0 > c.height * 0.05) return;  // implausible size
-      out.push({ x0: syms[0].x0, x1: syms[syms.length - 1].x1, y0, y1, text, syms, parsed, manual: false });
-    });
-    // drop outliers: chord symbols on one sheet are all about the same height
-    const hs = out.map(t => t.y1 - t.y0).sort((a, b) => a - b), med = hs[hs.length >> 1] || 0;
-    const kept = med ? out.filter(t => { const hh = t.y1 - t.y0; return hh > med * 0.55 && hh < med * 1.6; }) : out;
-    kept.sort((a, b) => (Math.abs(a.y0 - b.y0) < 20 ? a.x0 - b.x0 : a.y0 - b.y0));
-    return { tokens: kept, w: c.width, h: c.height, img };
+    }
+    // chord symbols on one sheet are all about the same height — drop outliers (stray beams, big titles)
+    const hs = tokens.map(t => t.y1 - t.y0).sort((a, b) => a - b), med = hs[hs.length >> 1] || gap * 1.5;
+    tokens = tokens.filter(t => (t.y1 - t.y0) > med * 0.5 && (t.y1 - t.y0) < med * 1.8);
+    tokens.sort((a, b) => a.staff - b.staff || a.x0 - b.x0);
+    return { tokens, w: W, h: H, img, lowRes: gap < 9 };
   }
 
   // draw a transposed copy. Root/bass letters are repainted; every other symbol keeps its original pixels.
@@ -708,13 +759,13 @@
       if (tk.manual || !s.length) {
         parts.push({ text: pretty(tr.text) });
       } else {
-        i = 1; if (s[i] && /[#♯b♭]/.test(s[i].t) && parsed.root.length > 1) i++;   // skip root accidental
+        i = 1; if (s[i] && /^[#♯b♭]$/.test(s[i].t) && parsed.root.length > 1) i++;   // skip root accidental (if OCR saw one)
         parts.push({ text: pretty(tr.root) });
         const slash = s.findIndex((x, k) => k >= i && x.t === '/');
         if (parsed.bass && slash >= 0) {
           if (slash > i) parts.push({ keep: [s[i].x0, s[slash - 1].x1] });
           parts.push({ keep: [s[slash].x0, s[slash].x1] });
-          let j = slash + 1; j++; if (s[j] && /[#♯b♭]/.test(s[j].t) && parsed.bass.length > 1) j++;
+          let j = slash + 1; j++; if (s[j] && /^[#♯b♭]$/.test(s[j].t) && parsed.bass.length > 1) j++;
           parts.push({ text: pretty(tr.bass) });
           if (j < s.length) parts.push({ keep: [s[j].x0, s[s.length - 1].x1] });
         } else if (i < s.length) {
@@ -759,7 +810,7 @@
       <div class="key-status">${im.orig ? `지금 ${KEY_LABEL[im.keyFrom] || im.keyFrom} → ${KEY_LABEL[im.keyTo] || im.keyTo} 로 바뀐 상태입니다. 다시 바꾸려면 코드를 다시 찾으세요.` : '악보에서 코드를 찾은 뒤, 틀린 건 눌러서 고치고 적용하세요.'}</div>
       <label class="key-zoom"><span>확대</span><input type="range" id="kz-${song.id}-${k}" min="100" max="400" step="10" value="100"><output>100%</output></label>
       <div class="key-scroll"><div class="key-view"><img src="${base}" alt=""><div class="boxes"></div></div></div>
-      <div class="key-hint">코드 상자를 누르면 고치거나 지울 수 있고, 빈 곳을 누르면 코드를 추가합니다.</div>
+      <div class="key-hint">초록: 읽음 · 노랑: 키에 맞춰 ♭/♯을 채웠거나 확인 필요 · 빨강: 못 읽음. 상자를 누르면 고치거나 지울 수 있고, 빈 곳을 누르면 추가합니다.</div>
     `;
     const status = $('.key-status', box), view = $('.key-view', box), boxes = $('.boxes', box);
     const selF = $('select', box), selT = box.querySelectorAll('select')[1];
@@ -769,17 +820,22 @@
     const zoom = $('.key-zoom input', box);
     zoom.addEventListener('input', () => { view.style.width = zoom.value + '%'; $('.key-zoom output', box).value = zoom.value + '%'; });
     const semis = () => (pitchClass(selT.value) - pitchClass(selF.value) + 12) % 12;
+    function applyKeyRepair() {
+      if (!job) return;
+      job.tokens.forEach(tk => { if (!tk.manual && tk.raw) { tk.text = repairForKey(tk.raw, selF.value); tk.repaired = tk.text !== tk.raw; } });
+    }
     function drawBoxes() {
       boxes.innerHTML = '';
       if (!job) return;
+      applyKeyRepair();
       job.tokens.forEach((tk, idx) => {
         if (tk.deleted) return;
         const parsed = parseChord(tk.text);
         const b = document.createElement('button');
-        b.type = 'button'; b.className = 'cbox' + (parsed ? '' : ' bad');
+        b.type = 'button'; b.className = 'cbox' + (!parsed ? ' bad' : (!parsed.known || tk.repaired) ? ' check' : '');
         b.style.left = (tk.x0 / job.w * 100) + '%'; b.style.top = (tk.y0 / job.h * 100) + '%';
         b.style.width = ((tk.x1 - tk.x0) / job.w * 100) + '%'; b.style.height = ((tk.y1 - tk.y0) / job.h * 100) + '%';
-        b.title = tk.text + (parsed ? ' → ' + transposeChord(parsed, semis(), selT.value).text : ' (읽을 수 없음)');
+        b.title = (tk.repaired ? `${tk.raw} → ${tk.text} (키에 맞춰 고침) ` : tk.text) + (parsed ? ' → ' + transposeChord(parsed, semis(), selT.value).text : ' (읽을 수 없음 — 눌러서 고치거나 지우세요)');
         b.addEventListener('click', e => { e.stopPropagation(); openEdit(tk, b); });
         boxes.appendChild(b);
       });
@@ -816,7 +872,12 @@
         job = await findChords(base, t => { status.textContent = t; });
         const roots = job.tokens.map(t => parseChord(t.text)?.root).filter(Boolean);
         if (roots.length && !im.keyFrom) selF.value = guessKey(roots);
-        status.textContent = job.tokens.length ? `코드 ${job.tokens.length}개를 찾았습니다. 놓친 게 있으면 눌러서 추가하고, 원래 키를 확인한 뒤 적용하세요.` : '코드를 찾지 못했습니다. 빈 곳을 눌러 직접 추가할 수 있습니다.';
+        applyKeyRepair();
+        const bad = job.tokens.filter(t => !parseChord(t.text)).length, fixed = job.tokens.filter(t => t.repaired).length;
+        status.textContent = job.noStaves ? '오선을 찾지 못했습니다. 악보가 똑바로 놓인 이미지인지 확인해 주세요. 빈 곳을 눌러 직접 추가할 수는 있습니다.'
+          : job.tokens.length
+            ? `코드 ${job.tokens.length}개를 찾았습니다.` + (fixed ? ` 키에 맞춰 ♭/♯을 채운 것 ${fixed}개(노란 상자),` : '') + (bad ? ` 못 읽은 것 ${bad}개(빨간 상자)` : '') + ` — 원래 키를 확인하고, 상자를 눌러 고친 뒤 적용하세요.` + (job.lowRes ? ' 이미지 해상도가 낮아 인식이 떨어질 수 있습니다. 가로 1500px 이상 이미지를 권합니다.' : '')
+            : '코드를 찾지 못했습니다. 빈 곳을 눌러 직접 추가할 수 있습니다.';
         drawBoxes(); btnApply.disabled = false;
       } catch (err) {
         const msg = String(err && err.message || err);
