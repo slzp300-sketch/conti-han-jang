@@ -1,0 +1,177 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>벤치 5 — 실제 페이지에서 코드행 크롭이 맞게 잘리는지</title>
+<style>
+  body { font: 13px/1.6 system-ui, sans-serif; margin: 20px; max-width: 1300px; }
+  canvas { border: 1px solid #ccc; display: block; margin: 4px 0 14px; image-rendering: pixelated; }
+  h3 { font-size: 13px; margin: 14px 0 2px; }
+  #log { white-space: pre-wrap; font-size: 12px; }
+  pre { background: #f6f6f6; padding: 8px; font-size: 11px; white-space: pre-wrap; }
+</style>
+<h1>벤치 5 — 페이지에서 띠를 떼고 코드행을 자르는 과정 점검</h1>
+<p id="log">준비 중…</p>
+<pre id="res"></pre>
+<div id="out"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script>
+const log = m => { document.getElementById('log').textContent = m; console.log(m); };
+const out = document.getElementById('out');
+const show = (label, cv, zoom = 3) => {
+  const h = document.createElement('h3'); h.textContent = label; out.appendChild(h);
+  const c = document.createElement('canvas');
+  c.width = cv.width * zoom; c.height = cv.height * zoom;
+  const x = c.getContext('2d'); x.imageSmoothingEnabled = false;
+  x.drawImage(cv, 0, 0, c.width, c.height);
+  out.appendChild(c);
+};
+
+// ---- the same sheet the app test uses ----
+const SYS = [
+  { ch: ['G','D','Em7','C'],      ly: '주 따르며지 - 나 온 - 순간의 -   승리와수 -많 은-실 - 수 -' },
+  { ch: ['G','D','Em7','C','G'],  ly: '저 하늘위무 - 지 개 - 천국의 -  소망과언 -약 의-증 - 거 -' },
+  { ch: ['C','G','D','Em7'],      ly: '벅 찬가슴으로  -    더 큰목소리로 -' },
+  { ch: ['G','D','Em7','C'],      ly: '기 뻐-하 - 며   노래-하 - 라  주 여-기 -계시네 -' },
+];
+function mkSheet(W) {
+  const BIG_W = 1600, g = 13, FS = 30, rowH = g * 14;
+  const big = document.createElement('canvas');
+  big.width = BIG_W; big.height = rowH * SYS.length + g * 6;
+  const x = big.getContext('2d');
+  x.fillStyle = '#fff'; x.fillRect(0, 0, big.width, big.height);
+  x.textBaseline = 'alphabetic';
+  SYS.forEach((s, i) => {
+    const top = g * 3 + i * rowH, usable = BIG_W - g * 12;
+    x.fillStyle = '#000'; x.font = `bold ${FS}px "Times New Roman", serif`;
+    s.ch.forEach((t, k) => x.fillText(t, g * 6 + k * usable / s.ch.length, top));
+    x.strokeStyle = '#000'; x.lineWidth = 1.2;
+    for (let L = 0; L < 5; L++) { const yy = top + g * 1.6 + L * g; x.beginPath(); x.moveTo(g * 2, yy); x.lineTo(BIG_W - g * 2, yy); x.stroke(); }
+    x.fillStyle = '#000';
+    for (let n = 0; n < 14; n++) {
+      const nx = g * 6 + n * (usable / 14), ny = top + g * 1.6 + (n % 5) * g * 0.5 + g;
+      x.beginPath(); x.ellipse(nx, ny, g * 0.42, g * 0.32, -0.3, 0, 7); x.fill();
+      x.beginPath(); x.moveTo(nx + g * 0.4, ny); x.lineTo(nx + g * 0.4, ny - g * 2.6); x.lineWidth = 1.4; x.stroke();
+    }
+    x.font = `${FS * 0.72}px "Malgun Gothic", sans-serif`;
+    x.fillText(s.ly, g * 6, top + g * 9.2);
+  });
+  const f = W / BIG_W;
+  const small = document.createElement('canvas');
+  small.width = W; small.height = Math.round(big.height * f);
+  const sx = small.getContext('2d');
+  sx.imageSmoothingEnabled = true; sx.imageSmoothingQuality = 'high';
+  sx.fillStyle = '#fff'; sx.fillRect(0, 0, small.width, small.height);
+  sx.drawImage(big, 0, 0, small.width, small.height);
+  return small;
+}
+
+// ---- copies of the app's routines ----
+function findStaves(ctx, w, h) {
+  const d = ctx.getImageData(0, 0, w, h).data, rows = [];
+  for (let y = 0; y < h; y++) {
+    let dark = 0;
+    for (let x = 0; x < w; x += 2) if (d[(y * w + x) * 4] < 200) dark++;
+    if (dark > (w / 2) * 0.5) rows.push(y);
+  }
+  const lines = [];
+  for (const y of rows) { const L = lines[lines.length - 1]; if (L && y - L.y1 <= 2) L.y1 = y; else lines.push({ y0: y, y1: y }); }
+  const ys = lines.map(l => (l.y0 + l.y1) / 2), staves = [];
+  const small = ys.slice(1).map((y, i) => y - ys[i]).filter(g => g <= h * 0.025).sort((a, b) => a - b);
+  if (!small.length) return staves;
+  const g = small[small.length >> 1];
+  const near = (a, b) => Math.abs(a - b) < b * 0.4;
+  let cl = [];
+  const flush = () => {
+    if (cl.length >= 3 && cl[cl.length - 1] - cl[0] <= 4.6 * g) {
+      const y = Math.round(cl[0]); let x0 = 0, x1 = w - 1;
+      while (x0 < w && d[(y * w + x0) * 4] >= 200) x0++;
+      while (x1 > 0 && d[(y * w + x1) * 4] >= 200) x1--;
+      staves.push({ top: cl[0], bottom: Math.max(cl[cl.length - 1], cl[0] + 4 * g), gap: g, x0, x1 });
+    }
+    cl = [];
+  };
+  ys.forEach(y => { if (cl.length && (near(y - cl[cl.length - 1], g) || near(y - cl[cl.length - 1], 2 * g))) cl.push(y); else { flush(); cl.push(y); } });
+  flush();
+  return staves;
+}
+function toGray(ctx, w, h) {
+  const im = ctx.getImageData(0, 0, w, h), d = im.data;
+  for (let k = 0; k < d.length; k += 4) { let l = 0.299 * d[k] + 0.587 * d[k + 1] + 0.114 * d[k + 2]; l = l < 60 ? 0 : l > 215 ? 255 : (l - 60) * 255 / 155; d[k] = d[k + 1] = d[k + 2] = l; d[k + 3] = 255; }
+  ctx.putImageData(im, 0, 0);
+}
+function mk(w, h) { const k = document.createElement('canvas'); k.width = Math.round(w); k.height = Math.round(h); const x = k.getContext('2d'); x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high'; x.fillStyle = '#fff'; x.fillRect(0, 0, k.width, k.height); return [k, x]; }
+
+// the candidate crop, with its row profile exposed so we can see what it decided
+function rowsOf(cv) {
+  const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data, prof = [];
+  for (let y = 0; y < cv.height; y++) { let n = 0; for (let x = 0; x < cv.width; x++) if (d[(y * cv.width + x) * 4] < 170) n++; prof.push(n); }
+  const rows = []; let s = -1;
+  for (let y = 0; y < prof.length; y++) {
+    const on = prof[y] > 0;
+    if (on && s < 0) s = y;
+    if ((!on || y === prof.length - 1) && s >= 0) { rows.push({ y0: s, y1: y, max: Math.max(...prof.slice(s, y + 1)) }); s = -1; }
+  }
+  return { rows, prof };
+}
+
+async function run() {
+  const W = 620;
+  const sheet = mkSheet(W);
+  const [c, ctx] = mk(sheet.width, sheet.height);
+  ctx.drawImage(sheet, 0, 0);
+  const staves = findStaves(ctx, c.width, c.height);
+  toGray(ctx, c.width, c.height);
+  const gap = staves.length ? staves[0].gap : 0;
+  document.getElementById('res').textContent = `가로 ${W}px · 오선 ${staves.length}단 · gap ${gap.toFixed(2)}px\n` +
+    staves.map((s, i) => `  ${i}: top ${s.top.toFixed(1)} bottom ${s.bottom.toFixed(1)} x ${s.x0}~${s.x1}`).join('\n');
+  show('전체(그레이)', c, 1);
+
+  const worker = await Tesseract.createWorker('eng', 1);
+  const setP = psm => worker.setParameters({ tessedit_pageseg_mode: psm, tessedit_char_whitelist: 'ABCDEFGmajdinsugb#/()0123456789+-M', user_defined_dpi: '300' });
+  const lines = [];
+  for (let i = 0; i < staves.length; i++) {
+    const s = staves[i], staffH = s.bottom - s.top;
+    const y0 = Math.round(Math.max(0, i ? staves[i - 1].bottom + 2 : s.top - 2.2 * staffH));
+    const y1 = Math.round(s.top - gap * 0.5);
+    if (y1 - y0 < 6) { lines.push(`${i}단: 띠가 너무 얇음 (${y0}~${y1})`); continue; }
+    const [b, bx] = mk(W, y1 - y0);
+    bx.drawImage(c, 0, y0, W, y1 - y0, 0, 0, W, y1 - y0);
+    show(`${i}단 띠 원본 (y ${y0}~${y1}, 높이 ${y1 - y0}px)`, b, 3);
+    const { rows } = rowsOf(b);
+    const text = rows.filter(r => r.y1 - r.y0 >= 2 && r.max < b.width * 0.6);
+    lines.push(`${i}단 잉크행: ` + rows.map(r => `[${r.y0}-${r.y1} max${r.max}]`).join(' ') + `  → 텍스트행 ${text.length}개`);
+
+    // what the crop would feed OCR
+    let fed = b, offY = 0;
+    if (text.length) {
+      const r = text[text.length - 1], pad = Math.max(1, Math.round((r.y1 - r.y0) * 0.35));
+      const cy0 = Math.max(0, r.y0 - pad), cy1 = Math.min(b.height, r.y1 + pad);
+      const [o, ox] = mk(W, cy1 - cy0);
+      ox.drawImage(b, 0, cy0, W, cy1 - cy0, 0, 0, W, cy1 - cy0);
+      fed = o; offY = cy0;
+      show(`${i}단 코드행 크롭 (띠 안 y ${cy0}~${cy1})`, o, 3);
+    }
+    const sc = Math.min(5, Math.max(1, 40 / (1.6 * gap)));
+    for (const psm of ['7', '11']) {
+      await setP(psm);
+      const [u, ux] = mk(fed.width * sc, fed.height * sc);
+      ux.drawImage(fed, 0, 0, u.width, u.height);
+      const { data } = await worker.recognize(u);
+      lines.push(`   크롭+psm${psm}: ${JSON.stringify(data.text.trim())}`);
+    }
+    for (const psm of ['11']) {
+      await setP(psm);
+      const [u, ux] = mk(b.width * sc, b.height * sc);
+      ux.drawImage(b, 0, 0, u.width, u.height);
+      const { data } = await worker.recognize(u);
+      lines.push(`   띠전체+psm${psm}: ${JSON.stringify(data.text.trim())}`);
+    }
+    document.getElementById('res').textContent += '\n' + lines.slice(-4).join('\n');
+    log(`${i + 1}/${staves.length}단 완료`);
+  }
+  await worker.terminate();
+  document.getElementById('res').textContent += '\n\n=== 전체 ===\n' + lines.join('\n');
+  log('완료');
+}
+run().catch(e => log('오류: ' + e.message));
+</script>

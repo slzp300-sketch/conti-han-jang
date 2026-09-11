@@ -1,0 +1,200 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>코드 인식 벤치 3 — 확대배율·앙상블</title>
+<style>
+  body { font: 13px/1.6 system-ui, sans-serif; margin: 20px; max-width: 1200px; }
+  table { border-collapse: collapse; margin: 12px 0; font-size: 12px; }
+  th, td { border: 1px solid #ccc; padding: 3px 8px; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  td.best { background: #d8f0d8; font-weight: 700; }
+  #log { white-space: pre-wrap; font-size: 12px; }
+</style>
+<h1>코드 인식 벤치 3 — 확대배율과 앙상블 투표</h1>
+<p id="log">준비 중…</p>
+<div id="out"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script>
+const log = m => { document.getElementById('log').textContent = m; console.log(m); };
+
+const BANDS = [
+  { ch: ['G', 'D', 'Em7', 'C'],             ly: '주 따르며지 - 나 온 - 순간의 -   승리와수 -많 은-실 - 수 -' },
+  { ch: ['A', 'E', 'F#m7', 'E', 'D'],       ly: '내 구 주  예 수 님 주같은분 - 없 - 네 -' },
+  { ch: ['A/C#', 'D', 'A/E', 'F#m7', 'G'],  ly: '내 평생에 -   찬양하리 - -  놀라운주의사 랑  을' },
+  { ch: ['Bm7/F#', 'Esus4', 'E7', 'Dmaj7'], ly: '나 의영혼 -  온맘다해 -  주를경배합 니 다' },
+  { ch: ['C', 'G', 'D', 'Em7', 'C'],        ly: '벅 찬가슴으로  -    더 큰목소리로 -' },
+  { ch: ['F', 'Bb', 'Gm7', 'Csus4', 'Am'],  ly: '터질것같은기 -쁨 과-감 격 -을 노-래하라 -' },
+];
+
+function makeBand(band, capPx) {
+  const BIG = 64, capRatio = 0.66, scale = capPx / (BIG * capRatio);
+  const probe = document.createElement('canvas').getContext('2d');
+  probe.font = `bold ${BIG}px "Times New Roman", "Liberation Serif", serif`;
+  const gapPx = BIG * 2.2;
+  let w = BIG; const xs = [];
+  band.ch.forEach(c => { xs.push(w); w += probe.measureText(c).width + gapPx; });
+  const W = Math.ceil(w + BIG);
+  const c = document.createElement('canvas');
+  c.width = W; c.height = Math.ceil(BIG * 4.4);
+  const x = c.getContext('2d');
+  x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
+  x.fillStyle = '#000';
+  x.font = `${BIG * 0.62}px "Malgun Gothic", "Noto Sans KR", sans-serif`;
+  x.fillText(band.ly, BIG, BIG * 0.85);
+  x.strokeStyle = '#000'; x.lineWidth = BIG * 0.05;
+  x.beginPath(); x.moveTo(BIG * 0.6, BIG * 2.0); x.lineTo(BIG * 0.6, BIG * 2.35); x.lineTo(BIG * 6, BIG * 2.35); x.stroke();
+  x.font = `italic ${BIG * 0.45}px "Times New Roman", serif`;
+  x.fillText('10', BIG * 0.2, BIG * 1.75);
+  x.font = `bold ${BIG}px "Times New Roman", "Liberation Serif", serif`;
+  x.textBaseline = 'alphabetic';
+  band.ch.forEach((t, i) => x.fillText(t, xs[i], BIG * 3.4));
+  x.lineWidth = BIG * 0.035;
+  for (let i = 0; i < 2; i++) { const yy = BIG * (4.05 + i * 0.22); x.beginPath(); x.moveTo(BIG * 0.5, yy); x.lineTo(W - BIG * 0.5, yy); x.stroke(); }
+  const small = document.createElement('canvas');
+  small.width = Math.round(c.width * scale); small.height = Math.round(c.height * scale);
+  const sx = small.getContext('2d');
+  sx.imageSmoothingEnabled = true; sx.imageSmoothingQuality = 'high';
+  sx.fillStyle = '#fff'; sx.fillRect(0, 0, small.width, small.height);
+  sx.drawImage(c, 0, 0, small.width, small.height);
+  return small;
+}
+function cloneCanvas(src) { const c = document.createElement('canvas'); c.width = src.width; c.height = src.height; c.getContext('2d').drawImage(src, 0, 0); return c; }
+function toGray(ctx, w, h) {
+  const im = ctx.getImageData(0, 0, w, h), d = im.data;
+  for (let k = 0; k < d.length; k += 4) { let l = 0.299 * d[k] + 0.587 * d[k + 1] + 0.114 * d[k + 2]; l = l < 60 ? 0 : l > 215 ? 255 : (l - 60) * 255 / 155; d[k] = d[k + 1] = d[k + 2] = l; d[k + 3] = 255; }
+  ctx.putImageData(im, 0, 0);
+}
+function scaleSmooth(src, f) {
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(src.width * f)); c.height = Math.max(1, Math.round(src.height * f));
+  const x = c.getContext('2d');
+  x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high';
+  x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
+  x.drawImage(src, 0, 0, c.width, c.height);
+  return c;
+}
+function cropChordRow(cv) {
+  const x = cv.getContext('2d'), d = x.getImageData(0, 0, cv.width, cv.height).data, prof = [];
+  for (let y = 0; y < cv.height; y++) { let n = 0; for (let px = 0; px < cv.width; px++) if (d[(y * cv.width + px) * 4] < 170) n++; prof.push(n); }
+  const rows = []; let s = -1;
+  for (let y = 0; y < prof.length; y++) {
+    const on = prof[y] > 0;
+    if (on && s < 0) s = y;
+    if ((!on || y === prof.length - 1) && s >= 0) { rows.push({ y0: s, y1: y, max: Math.max(...prof.slice(s, y + 1)) }); s = -1; }
+  }
+  const text = rows.filter(r => r.y1 - r.y0 >= 2 && r.max < cv.width * 0.6);
+  if (!text.length) return cv;
+  const r = text[text.length - 1], pad = Math.max(1, Math.round((r.y1 - r.y0) * 0.35));
+  const y0 = Math.max(0, r.y0 - pad), y1 = Math.min(cv.height, r.y1 + pad);
+  const out = document.createElement('canvas');
+  out.width = cv.width; out.height = Math.max(1, y1 - y0);
+  const ox = out.getContext('2d');
+  ox.fillStyle = '#fff'; ox.fillRect(0, 0, out.width, out.height);
+  ox.drawImage(cv, 0, y0, cv.width, y1 - y0, 0, 0, cv.width, y1 - y0);
+  return out;
+}
+function score(got, want) {
+  const norm = s => s.replace(/♯/g, '#').replace(/♭/g, 'b').trim();
+  const g = got.map(norm).filter(Boolean), wn = want.map(norm);
+  let hit = 0; const pool = g.slice();
+  wn.forEach(t => { const i = pool.indexOf(t); if (i >= 0) { hit++; pool.splice(i, 1); } });
+  return { hit, want: wn.length, spurious: pool.length };
+}
+// words → candidate chords carrying position and confidence, in the ORIGINAL band's pixel space
+function wordsToCands(words, scale) {
+  const out = [];
+  (words || []).forEach(w => {
+    const conf = w.confidence == null ? 50 : w.confidence;
+    const syms = (w.symbols || []).map(q => ({ t: q.text, x0: q.bbox.x0 / scale, x1: q.bbox.x1 / scale, y0: q.bbox.y0 / scale, y1: q.bbox.y1 / scale }));
+    if (!syms.length) return;
+    let cur = []; const groups = [];
+    const flush = () => { if (cur.length) groups.push(cur); cur = []; };
+    syms.forEach((q, k) => { if (k && q.x0 - syms[k - 1].x1 > (q.y1 - q.y0) * 0.45 && /[A-G]/.test(q.t)) flush(); cur.push(q); });
+    flush();
+    groups.forEach(g => {
+      const t = g.map(q => q.t).join('');
+      if (/^[A-G]/.test(t)) out.push({ text: t, x0: g[0].x0, x1: g[g.length - 1].x1, conf });
+    });
+  });
+  return out;
+}
+// merge candidates from several runs: cluster by x overlap, then vote by summed confidence
+function vote(runs, minRuns) {
+  const all = [];
+  runs.forEach((r, i) => r.forEach(c => all.push({ ...c, run: i })));
+  all.sort((a, b) => a.x0 - b.x0);
+  const clusters = [];
+  all.forEach(c => {
+    const hit = clusters.find(cl => Math.min(cl.x1, c.x1) - Math.max(cl.x0, c.x0) > 0);
+    if (hit) { hit.items.push(c); hit.x0 = Math.min(hit.x0, c.x0); hit.x1 = Math.max(hit.x1, c.x1); }
+    else clusters.push({ x0: c.x0, x1: c.x1, items: [c] });
+  });
+  const out = [];
+  clusters.forEach(cl => {
+    const runsSeen = new Set(cl.items.map(i => i.run)).size;
+    const bestConf = Math.max(...cl.items.map(i => i.conf));
+    if (runsSeen < minRuns && bestConf < 70) return;
+    const tally = {};
+    cl.items.forEach(i => { tally[i.text] = (tally[i.text] || 0) + i.conf; });
+    out.push(Object.entries(tally).sort((a, b) => b[1] - a[1])[0][0]);
+  });
+  return out;
+}
+
+const CAPS = [7, 9];
+async function run() {
+  log('tesseract 준비 중…');
+  const worker = await Tesseract.createWorker('eng', 1);
+  const setP = async psm => worker.setParameters({ tessedit_pageseg_mode: psm, tessedit_char_whitelist: 'ABCDEFGmajdinsugb#/()0123456789+-M', user_defined_dpi: '300' });
+  const results = {};
+  const put = (k, cap, s) => { (results[k] = results[k] || {})[cap] = s; log(`${k} · cap ${cap} → ${s.hit}/${s.want} (오인식 ${s.spurious})`); };
+
+  for (const cap of CAPS) {
+    const prepped = BANDS.map(b => { const g = cloneCanvas(makeBand(b, cap)); toGray(g.getContext('2d'), g.width, g.height); return cropChordRow(g); });
+
+    // single-pass at three upscale targets
+    for (const target of [40, 56, 72]) {
+      await setP('7');
+      let hit = 0, want = 0, spurious = 0;
+      for (let i = 0; i < BANDS.length; i++) {
+        const f = target / cap;
+        const { data } = await worker.recognize(scaleSmooth(prepped[i], f));
+        const s = score(wordsToCands(data.words, f).map(c => c.text), BANDS[i].ch);
+        hit += s.hit; want += s.want; spurious += s.spurious;
+      }
+      put(`psm7 · 확대 ${target}px`, cap, { hit, want, spurious });
+    }
+
+    // ensemble: three different (psm, scale) views, merged by positional confidence vote
+    for (const minRuns of [1, 2]) {
+      let hit = 0, want = 0, spurious = 0;
+      for (let i = 0; i < BANDS.length; i++) {
+        const runs = [];
+        for (const [psm, target] of [['7', 40], ['6', 56], ['11', 40]]) {
+          await setP(psm);
+          const f = target / cap;
+          const { data } = await worker.recognize(scaleSmooth(prepped[i], f));
+          runs.push(wordsToCands(data.words, f));
+        }
+        const s = score(vote(runs, minRuns), BANDS[i].ch);
+        hit += s.hit; want += s.want; spurious += s.spurious;
+      }
+      put(`앙상블 3종 (최소 ${minRuns}회 등장)`, cap, { hit, want, spurious });
+    }
+  }
+  await worker.terminate();
+
+  const keys = Object.keys(results);
+  const totals = {}; keys.forEach(k => totals[k] = CAPS.reduce((a, c) => a + results[k][c].hit, 0));
+  const best = Math.max(...Object.values(totals));
+  let html = '<table><tr><th>설정</th>' + CAPS.map(c => `<th>${c}px</th><th>오인식</th>`).join('') + '<th>합계</th></tr>';
+  keys.forEach(k => {
+    html += `<tr><td>${k}</td>`;
+    CAPS.forEach(c => { const r = results[k][c]; html += `<td>${r.hit}/${r.want}</td><td>${r.spurious}</td>`; });
+    html += `<td class="${totals[k] === best ? 'best' : ''}">${totals[k]}</td></tr>`;
+  });
+  document.getElementById('out').innerHTML = html + '</table>';
+  log('완료');
+}
+run().catch(e => log('오류: ' + e.message));
+</script>

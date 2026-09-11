@@ -674,7 +674,120 @@
     ctx.putImageData(im, 0, 0);
   }
 
-  let ocrWorker = null;
+  // The band between two staves still holds the previous line's lyrics, the bar number and the repeat
+  // bracket. Keep only the last real text row before the staff — that row is the chords, and dropping
+  // the rest is what stops lyrics from being read as chords. → { canvas, offY }
+  function cropChordRow(cv, gap) {
+    const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data, prof = [];
+    for (let y = 0; y < cv.height; y++) {
+      let n = 0;
+      for (let x = 0; x < cv.width; x++) if (d[(y * cv.width + x) * 4] < 170) n++;
+      prof.push(n);
+    }
+    const rows = []; let s = -1;
+    for (let y = 0; y < prof.length; y++) {
+      const on = prof[y] > 0;
+      if (on && s < 0) s = y;
+      if ((!on || y === prof.length - 1) && s >= 0) { rows.push({ y0: s, y1: y, max: Math.max(...prof.slice(s, y + 1)) }); s = -1; }
+    }
+    // a full-width run is a staff line, not text; anything shorter than a letter is a stray mark
+    // (the clipped top edge of the staff shows up exactly like that)
+    const isText = r => r.max < cv.width * 0.6 && r.max >= 2;
+    let text = rows.filter(r => isText(r) && r.y1 - r.y0 >= gap * 0.9);
+    if (!text.length) text = rows.filter(r => isText(r) && r.y1 - r.y0 >= 2);
+    if (!text.length) return { canvas: cv, offY: 0 };
+    const r = text[text.length - 1], pad = Math.max(1, Math.round((r.y1 - r.y0) * 0.35));
+    const y0 = Math.max(0, r.y0 - pad), y1 = Math.min(cv.height, r.y1 + pad);
+    const out = document.createElement('canvas');
+    out.width = cv.width; out.height = Math.max(1, y1 - y0);
+    const ox = out.getContext('2d');
+    ox.fillStyle = '#fff'; ox.fillRect(0, 0, out.width, out.height);
+    ox.drawImage(cv, 0, y0, cv.width, y1 - y0, 0, 0, cv.width, y1 - y0);
+    return { canvas: out, offY: y0 };
+  }
+
+  // several OCR views of one band → one set of tokens: cluster by horizontal overlap and keep the
+  // reading with the most confidence behind it, along with that reading's symbols
+  function mergeRuns(runs) {
+    const all = runs.flat().sort((a, b) => a.x0 - b.x0), cl = [];
+    all.forEach(t => {
+      const hit = cl.find(g => Math.min(g.x1, t.x1) - Math.max(g.x0, t.x0) > 0);
+      if (hit) { hit.items.push(t); hit.x0 = Math.min(hit.x0, t.x0); hit.x1 = Math.max(hit.x1, t.x1); }
+      else cl.push({ x0: t.x0, x1: t.x1, items: [t] });
+    });
+    return cl.map(g => {
+      // a view that produced junk must not outvote one that produced a real chord, however sure it was
+      const real = g.items.filter(t => parseChord(t.text)?.known);
+      const pool = real.length ? real : g.items;
+      const tally = {};
+      pool.forEach(t => { tally[t.text] = (tally[t.text] || 0) + t.conf; });
+      const win = Object.entries(tally).sort((a, b) => b[1] - a[1])[0][0];
+      const pick = pool.filter(t => t.text === win).sort((a, b) => b.conf - a.conf)[0];
+      return { ...pick, conf: Math.max(...pool.map(t => t.conf)) };
+    });
+  }
+
+  // a token's pixels squashed onto a fixed grid and normalised, so two prints of the same chord can
+  // be compared regardless of contrast
+  const STAMP_W = 32, STAMP_H = 16;
+  function stampOf(cv, t) {
+    const x0 = Math.max(0, Math.floor(t.x0)), x1 = Math.min(cv.width, Math.ceil(t.x1));
+    const y0 = Math.max(0, Math.floor(t.y0)), y1 = Math.min(cv.height, Math.ceil(t.y1));
+    if (x1 - x0 < 3 || y1 - y0 < 3) return null;
+    const k = document.createElement('canvas'); k.width = STAMP_W; k.height = STAMP_H;
+    const x = k.getContext('2d');
+    x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high';
+    x.fillStyle = '#fff'; x.fillRect(0, 0, STAMP_W, STAMP_H);
+    x.drawImage(cv, x0, y0, x1 - x0, y1 - y0, 0, 0, STAMP_W, STAMP_H);
+    const d = x.getImageData(0, 0, STAMP_W, STAMP_H).data, v = new Float32Array(STAMP_W * STAMP_H);
+    let mean = 0;
+    for (let i = 0; i < v.length; i++) { v[i] = d[i * 4]; mean += v[i]; }
+    mean /= v.length;
+    let n = 0;
+    for (let i = 0; i < v.length; i++) { v[i] -= mean; n += v[i] * v[i]; }
+    n = Math.sqrt(n) || 1;
+    for (let i = 0; i < v.length; i++) v[i] /= n;
+    return { v, aspect: (x1 - x0) / (y1 - y0) };
+  }
+  // One sheet prints the same chord over and over. Group the tokens whose stamps match and give the
+  // whole group the reading that carries the most confidence — this is what stops the same G from
+  // being read differently on every line. Returns how many readings were changed.
+  function crossVote(cv, tokens) {
+    const groups = [];
+    tokens.forEach(t => {
+      const s = stampOf(cv, t); if (!s) return;
+      let best = null, bestC = -1;
+      groups.forEach(g => {
+        if (Math.abs(g.aspect - s.aspect) / g.aspect > 0.18) return;   // width alone separates G from Em7
+        let c = 0;
+        for (let i = 0; i < s.v.length; i++) c += g.rep.v[i] * s.v[i];
+        if (c > bestC) { bestC = c; best = g; }
+      });
+      if (best && bestC >= 0.88) best.items.push(t); else groups.push({ rep: s, aspect: s.aspect, items: [t] });
+    });
+    let fixed = 0;
+    groups.forEach(g => {
+      if (g.items.length < 2) return;
+      const tally = {};
+      g.items.forEach(t => { tally[t.text] = (tally[t.text] || 0) + (t.conf || 50); });
+      const win = Object.entries(tally).sort((a, b) => b[1] - a[1])[0][0];
+      if (!parseChord(win)?.known) return;
+      g.items.forEach(t => {
+        if (t.text === win) return;
+        t.was = t.text; t.text = win; t.raw = win; t.voted = true; t.redraw = true; fixed++;
+      });
+    });
+    return fixed;
+  }
+
+  let ocrWorker = null, ocrMode = null;
+  // psm 11 (sparse) suits a whole page; psm 7 (single line) is the right mode once a band has been
+  // cropped down to its chord row
+  async function setOcrMode(w, psm) {
+    if (ocrMode === psm) return;
+    await w.setParameters({ tessedit_pageseg_mode: psm, tessedit_char_whitelist: 'ABCDEFGmajdinsugb#/()0123456789+-M', user_defined_dpi: '300' });
+    ocrMode = psm;
+  }
   async function getOcrWorker(onStatus) {
     if (ocrWorker) return ocrWorker;
     if (!window.Tesseract) {
@@ -688,7 +801,8 @@
     }
     onStatus('인식 데이터 준비 중… (처음 한 번만)');
     const w = await Tesseract.createWorker('eng', 1, { logger: m => { if (m.status === 'recognizing text') onStatus(`코드 찾는 중… ${Math.round(m.progress * 100)}%`); } });
-    await w.setParameters({ tessedit_pageseg_mode: '11', tessedit_char_whitelist: 'ABCDEFGmajdinsugb#/()0123456789+-M' });
+    ocrMode = null;
+    await setOcrMode(w, '11');
     ocrWorker = w;
     return w;
   }
@@ -698,6 +812,7 @@
   function wordsToTokens(words, scale, offY, staffIdx, staves) {
     const out = [];
     words.forEach(w => {
+      const conf = w.confidence == null ? 50 : w.confidence;
       const syms = w.symbols.map(q => ({ t: q.text, x0: q.bbox.x0 / scale, x1: q.bbox.x1 / scale, y0: q.bbox.y0 / scale + offY, y1: q.bbox.y1 / scale + offY }));
       const groups = []; let cur = [];
       const flush = () => { if (cur.length) groups.push(cur); cur = []; };
@@ -714,7 +829,7 @@
         if (!(dTop <= staffH * 0.8 || (dTop <= staffH * 1.3 && dTop < dBot))) return;
         if (g[g.length - 1].x1 < s.x0 + s.gap || g[0].x0 > s.x1) return;   // left of the staff (bar numbers) or past its end
         if (!/^[A-G]/.test(text)) return;               // junk
-        out.push({ x0: g[0].x0, x1: g[g.length - 1].x1, y0, y1, text, raw: text, syms: g, staff: st, manual: false });
+        out.push({ x0: g[0].x0, x1: g[g.length - 1].x1, y0, y1, text, raw: text, syms: g, staff: st, conf, manual: false });
       });
     });
     return out;
@@ -733,31 +848,49 @@
     const worker = await getOcrWorker(onStatus);
     const mk = (w, h) => { const k = document.createElement('canvas'); k.width = Math.round(w); k.height = Math.round(h); const x = k.getContext('2d'); x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high'; x.fillStyle = '#fff'; x.fillRect(0, 0, k.width, k.height); return [k, x]; };
 
+    const lowRes = gap < 9;
+
     // pass 1: the whole page, upscaled when the engraving is small
     const s1 = Math.min(3, Math.max(1, 13 / gap));
     const [p, px] = mk(W * s1, H * s1); px.drawImage(c, 0, 0, p.width, p.height);
     onStatus('코드 찾는 중… (1/2)');
+    await setOcrMode(worker, '11');
     let tokens = wordsToTokens((await worker.recognize(p)).data.words, s1, 0, null, staves);
 
-    // pass 2: each chord band on its own, scaled so letters are ~40px tall; adds only chords pass 1 missed
+    // pass 2: each chord band on its own, cropped down to the chord row and scaled so letters are
+    // ~40px tall. A small sheet is read from three views and merged by vote, which recovers chords a
+    // single view misses without letting the lyrics back in.
+    const views = lowRes ? [['7', 40], ['6', 56], ['11', 40]] : [['7', 40]];
     for (let i = 0; i < staves.length; i++) {
       onStatus(`코드 찾는 중… (2/2, ${i + 1}/${staves.length}단)`);
       const s = staves[i], staffH = s.bottom - s.top;
       const y0 = Math.round(Math.max(0, i ? staves[i - 1].bottom + 2 : s.top - 2.2 * staffH)), y1 = Math.round(s.top - gap * 0.5);
       if (y1 - y0 < 6) continue;
-      const sc = Math.min(4, Math.max(1, 40 / (1.6 * gap)));
-      const [b, bx] = mk(W * sc, (y1 - y0) * sc); bx.drawImage(c, 0, y0, W, y1 - y0, 0, 0, b.width, b.height);
-      const extra = wordsToTokens((await worker.recognize(b)).data.words, sc, y0, i, staves);
-      extra.forEach(t => {
+      const [b, bx] = mk(W, y1 - y0); bx.drawImage(c, 0, y0, W, y1 - y0, 0, 0, W, y1 - y0);
+      const row = cropChordRow(b, gap);
+      const runs = [];
+      for (const [psm, target] of views) {
+        await setOcrMode(worker, psm);
+        const sc = Math.min(5, Math.max(1, target / (1.6 * gap)));
+        const [u, ux] = mk(row.canvas.width * sc, row.canvas.height * sc);
+        ux.drawImage(row.canvas, 0, 0, u.width, u.height);
+        runs.push(wordsToTokens((await worker.recognize(u)).data.words, sc, y0 + row.offY, i, staves));
+      }
+      mergeRuns(runs).forEach(t => {
         const pr = parseChord(t.text); if (!pr || !pr.known) return;
-        if (!tokens.some(u => u.staff === t.staff && Math.min(u.x1, t.x1) - Math.max(u.x0, t.x0) > 0)) tokens.push(t);
+        const hit = tokens.find(u => u.staff === t.staff && Math.min(u.x1, t.x1) - Math.max(u.x0, t.x0) > 0);
+        if (!hit) { tokens.push(t); return; }
+        // the cropped chord row reads more cleanly than the whole page, so let it correct pass 1
+        const hp = parseChord(hit.text);
+        if (!hp || !hp.known || t.conf > (hit.conf || 0) + 10) Object.assign(hit, t);
       });
     }
     // chord symbols on one sheet are all about the same height — drop outliers (stray beams, big titles)
     const hs = tokens.map(t => t.y1 - t.y0).sort((a, b) => a - b), med = hs[hs.length >> 1] || gap * 1.5;
     tokens = tokens.filter(t => (t.y1 - t.y0) > med * 0.5 && (t.y1 - t.y0) < med * 1.8);
     tokens.sort((a, b) => a.staff - b.staff || a.x0 - b.x0);
-    return { tokens, w: W, h: H, img, lowRes: gap < 9 };
+    const voted = crossVote(c, tokens);
+    return { tokens, w: W, h: H, img, lowRes, voted };
   }
 
   // draw a transposed copy. Root/bass letters are repainted; every other symbol keeps its original pixels.
@@ -779,7 +912,7 @@
       const parts = [];
       let i = 0;
       const s = tk.syms;
-      if (tk.manual || !s.length) {
+      if (tk.manual || tk.redraw || !s.length) {   // reading no longer matches the symbols — repaint it whole
         parts.push({ text: pretty(tr.text) });
       } else {
         i = 1; if (s[i] && /^[#♯b♭]$/.test(s[i].t) && parsed.root.length > 1) i++;   // skip root accidental (if OCR saw one)
@@ -855,10 +988,10 @@
         if (tk.deleted) return;
         const parsed = parseChord(tk.text);
         const b = document.createElement('button');
-        b.type = 'button'; b.className = 'cbox' + (!parsed ? ' bad' : (!parsed.known || tk.repaired) ? ' check' : '');
+        b.type = 'button'; b.className = 'cbox' + (!parsed ? ' bad' : (!parsed.known || tk.repaired || tk.voted) ? ' check' : '');
         b.style.left = (tk.x0 / job.w * 100) + '%'; b.style.top = (tk.y0 / job.h * 100) + '%';
         b.style.width = ((tk.x1 - tk.x0) / job.w * 100) + '%'; b.style.height = ((tk.y1 - tk.y0) / job.h * 100) + '%';
-        b.title = (tk.repaired ? `${tk.raw} → ${tk.text} (키에 맞춰 고침) ` : tk.text) + (parsed ? ' → ' + transposeChord(parsed, semis(), selT.value).text : ' (읽을 수 없음 — 눌러서 고치거나 지우세요)');
+        b.title = (tk.repaired ? `${tk.raw} → ${tk.text} (키에 맞춰 고침) ` : tk.voted ? `${tk.was} → ${tk.text} (같은 모양의 코드에 맞춰 고침) ` : tk.text) + (parsed ? ' → ' + transposeChord(parsed, semis(), selT.value).text : ' (읽을 수 없음 — 눌러서 고치거나 지우세요)');
         b.addEventListener('click', e => { e.stopPropagation(); openEdit(tk, b); });
         boxes.appendChild(b);
       });
@@ -899,7 +1032,7 @@
         const bad = job.tokens.filter(t => !parseChord(t.text)).length, fixed = job.tokens.filter(t => t.repaired).length;
         status.textContent = job.noStaves ? '오선을 찾지 못했습니다. 악보가 똑바로 놓인 이미지인지 확인해 주세요. 빈 곳을 눌러 직접 추가할 수는 있습니다.'
           : job.tokens.length
-            ? `코드 ${job.tokens.length}개를 찾았습니다.` + (fixed ? ` 키에 맞춰 ♭/♯을 채운 것 ${fixed}개(노란 상자),` : '') + (bad ? ` 못 읽은 것 ${bad}개(빨간 상자)` : '') + ` — 원래 키를 확인하고, 상자를 눌러 고친 뒤 적용하세요.` + (job.lowRes ? ' 이미지 해상도가 낮아 인식이 떨어질 수 있습니다. 가로 1500px 이상 이미지를 권합니다.' : '')
+            ? `코드 ${job.tokens.length}개를 찾았습니다.` + (fixed ? ` 키에 맞춰 ♭/♯을 채운 것 ${fixed}개(노란 상자),` : '') + (job.voted ? ` 같은 모양끼리 맞춘 것 ${job.voted}개(노란 상자),` : '') + (bad ? ` 못 읽은 것 ${bad}개(빨간 상자)` : '') + ` — 원래 키를 확인하고, 상자를 눌러 고친 뒤 적용하세요.` + (job.lowRes ? ' 이미지 해상도가 낮아 인식이 떨어질 수 있습니다. 가로 1500px 이상 이미지를 권합니다.' : '')
             : '코드를 찾지 못했습니다. 빈 곳을 눌러 직접 추가할 수 있습니다.';
         drawBoxes(); btnApply.disabled = false;
       } catch (err) {

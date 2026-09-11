@@ -1,0 +1,235 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>코드 인식 벤치 2 — 실제 띠 조건</title>
+<style>
+  body { font: 13px/1.6 system-ui, sans-serif; margin: 20px; max-width: 1200px; }
+  h1 { font-size: 18px; } h2 { font-size: 15px; margin-top: 24px; }
+  table { border-collapse: collapse; margin: 12px 0; font-size: 12px; }
+  th, td { border: 1px solid #ccc; padding: 3px 8px; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  td.best { background: #d8f0d8; font-weight: 700; }
+  canvas { border: 1px solid #ddd; margin: 2px; vertical-align: top; max-width: 100%; }
+  #log { white-space: pre-wrap; font-size: 12px; }
+</style>
+<h1>코드 인식 벤치 2 — 가사·오선이 섞인 실제 띠 조건</h1>
+<p id="log">준비 중…</p>
+<div id="out"></div>
+<h2>띠 모양 확인</h2>
+<div id="samples"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script>
+const log = m => { document.getElementById('log').textContent = m; console.log(m); };
+
+// ------------------------------------------------------- realistic band
+// The app crops the band from the previous staff's bottom to this staff's top, so a real band
+// carries the previous line's Korean lyrics and stray marks as well as the chord row.
+const BANDS = [
+  { ch: ['G', 'D', 'Em7', 'C'],                    ly: '주 따르며지 - 나 온 - 순간의 -   승리와수 -많 은-실 - 수 -' },
+  { ch: ['A', 'E', 'F#m7', 'E', 'D'],              ly: '내 구 주  예 수 님 주같은분 - 없 - 네 -' },
+  { ch: ['A/C#', 'D', 'A/E', 'F#m7', 'G'],         ly: '내 평생에 -   찬양하리 - -  놀라운주의사 랑  을' },
+  { ch: ['Bm7/F#', 'Esus4', 'E7', 'Dmaj7'],        ly: '나 의영혼 -  온맘다해 -  주를경배합 니 다' },
+  { ch: ['C', 'G', 'D', 'Em7', 'C'],               ly: '벅 찬가슴으로  -    더 큰목소리로 -' },
+  { ch: ['F', 'Bb', 'Gm7', 'Csus4', 'Am'],         ly: '터질것같은기 -쁨 과-감 격 -을 노-래하라 -' },
+];
+
+// Draw the band big, then shrink so chord cap height lands on capPx.
+function makeBand(band, capPx, opts = {}) {
+  const BIG = 64, capRatio = 0.66;
+  const scale = capPx / (BIG * capRatio);
+  const probe = document.createElement('canvas').getContext('2d');
+  probe.font = `bold ${BIG}px "Times New Roman", "Liberation Serif", serif`;
+  const gapPx = BIG * 2.2;
+  let w = BIG; const xs = [];
+  band.ch.forEach(c => { xs.push(w); w += probe.measureText(c).width + gapPx; });
+  const W = Math.ceil(w + BIG);
+  const c = document.createElement('canvas');
+  c.width = W; c.height = Math.ceil(BIG * 4.4);
+  const x = c.getContext('2d');
+  x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
+
+  if (opts.lyrics !== false) {
+    // previous staff's lyric line sits at the top of the band
+    x.fillStyle = '#000';
+    x.font = `${BIG * 0.62}px "Malgun Gothic", "Noto Sans KR", sans-serif`;
+    x.fillText(band.ly, BIG, BIG * 0.85);
+  }
+  if (opts.marks !== false) {
+    // repeat bracket + a bar number, the junk that lives in the band
+    x.strokeStyle = '#000'; x.lineWidth = BIG * 0.05;
+    x.beginPath(); x.moveTo(BIG * 0.6, BIG * 2.0); x.lineTo(BIG * 0.6, BIG * 2.35); x.lineTo(BIG * 6, BIG * 2.35); x.stroke();
+    x.font = `italic ${BIG * 0.45}px "Times New Roman", serif`;
+    x.fillText('10', BIG * 0.2, BIG * 1.75);
+  }
+  // the chord row
+  x.fillStyle = '#000';
+  x.font = `bold ${BIG}px "Times New Roman", "Liberation Serif", serif`;
+  x.textBaseline = 'alphabetic';
+  band.ch.forEach((t, i) => x.fillText(t, xs[i], BIG * 3.4));
+  if (opts.staff !== false) {
+    // top edge of this staff, just clipped into the band
+    x.strokeStyle = '#000'; x.lineWidth = BIG * 0.035;
+    for (let i = 0; i < 2; i++) {
+      const yy = BIG * (4.05 + i * 0.22);
+      x.beginPath(); x.moveTo(BIG * 0.5, yy); x.lineTo(W - BIG * 0.5, yy); x.stroke();
+    }
+  }
+  const small = document.createElement('canvas');
+  small.width = Math.max(1, Math.round(c.width * scale));
+  small.height = Math.max(1, Math.round(c.height * scale));
+  const sx = small.getContext('2d');
+  sx.imageSmoothingEnabled = true; sx.imageSmoothingQuality = 'high';
+  sx.fillStyle = '#fff'; sx.fillRect(0, 0, small.width, small.height);
+  sx.drawImage(c, 0, 0, small.width, small.height);
+  return small;
+}
+
+// ------------------------------------------------------- image helpers
+function cloneCanvas(src) {
+  const c = document.createElement('canvas');
+  c.width = src.width; c.height = src.height;
+  c.getContext('2d').drawImage(src, 0, 0);
+  return c;
+}
+function toGray(ctx, w, h) {
+  const im = ctx.getImageData(0, 0, w, h), d = im.data;
+  for (let k = 0; k < d.length; k += 4) {
+    let l = 0.299 * d[k] + 0.587 * d[k + 1] + 0.114 * d[k + 2];
+    l = l < 60 ? 0 : l > 215 ? 255 : (l - 60) * 255 / 155;
+    d[k] = d[k + 1] = d[k + 2] = l; d[k + 3] = 255;
+  }
+  ctx.putImageData(im, 0, 0);
+}
+function scaleSmooth(src, f) {
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(src.width * f)); c.height = Math.max(1, Math.round(src.height * f));
+  const x = c.getContext('2d');
+  x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high';
+  x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
+  x.drawImage(src, 0, 0, c.width, c.height);
+  return c;
+}
+
+// Rows of ink in the band. Chords are the LAST text row before the staff, and they are the row
+// whose dark pixels are sparse and tall; lyrics are a denser, wider row further up.
+function inkRows(cv) {
+  const x = cv.getContext('2d'), d = x.getImageData(0, 0, cv.width, cv.height).data;
+  const prof = [];
+  for (let y = 0; y < cv.height; y++) {
+    let n = 0;
+    for (let px = 0; px < cv.width; px++) if (d[(y * cv.width + px) * 4] < 170) n++;
+    prof.push(n);
+  }
+  const rows = [];
+  let s = -1;
+  for (let y = 0; y < prof.length; y++) {
+    const on = prof[y] > 0;
+    if (on && s < 0) s = y;
+    if ((!on || y === prof.length - 1) && s >= 0) { rows.push({ y0: s, y1: y, max: Math.max(...prof.slice(s, y + 1)) }); s = -1; }
+  }
+  return { rows, prof };
+}
+// Crop the band down to just its chord row: drop full-width rules (staff lines) and keep the
+// last remaining text row, which is the chord row sitting directly above the staff.
+function cropChordRow(cv) {
+  const { rows } = inkRows(cv);
+  const text = rows.filter(r => r.y1 - r.y0 >= 2 && r.max < cv.width * 0.6);
+  if (!text.length) return cv;
+  const r = text[text.length - 1];
+  const pad = Math.max(1, Math.round((r.y1 - r.y0) * 0.35));
+  const y0 = Math.max(0, r.y0 - pad), y1 = Math.min(cv.height, r.y1 + pad);
+  const out = document.createElement('canvas');
+  out.width = cv.width; out.height = Math.max(1, y1 - y0);
+  const ox = out.getContext('2d');
+  ox.fillStyle = '#fff'; ox.fillRect(0, 0, out.width, out.height);
+  ox.drawImage(cv, 0, y0, cv.width, y1 - y0, 0, 0, cv.width, y1 - y0);
+  return out;
+}
+
+// ------------------------------------------------------- scoring
+function score(got, want) {
+  const norm = s => s.replace(/♯/g, '#').replace(/♭/g, 'b').trim();
+  const g = got.map(norm).filter(Boolean), wn = want.map(norm);
+  let hit = 0; const pool = g.slice();
+  wn.forEach(t => { const i = pool.indexOf(t); if (i >= 0) { hit++; pool.splice(i, 1); } });
+  return { hit, want: wn.length, spurious: pool.length };
+}
+function wordsToChords(words) {
+  const out = [];
+  (words || []).forEach(w => {
+    const syms = (w.symbols || []).map(q => ({ t: q.text, x0: q.bbox.x0, x1: q.bbox.x1, y0: q.bbox.y0, y1: q.bbox.y1 }));
+    if (!syms.length) { const t = w.text.trim(); if (/^[A-G]/.test(t)) out.push(t); return; }
+    let cur = []; const groups = [];
+    const flush = () => { if (cur.length) groups.push(cur); cur = []; };
+    syms.forEach((q, k) => { if (k && q.x0 - syms[k - 1].x1 > (q.y1 - q.y0) * 0.45 && /[A-G]/.test(q.t)) flush(); cur.push(q); });
+    flush();
+    groups.forEach(g => { const t = g.map(q => q.t).join(''); if (/^[A-G]/.test(t)) out.push(t); });
+  });
+  return out;
+}
+
+// ------------------------------------------------------- runner
+const CAPS = [7, 9, 12];
+const PSMS = ['6', '7', '11', '13'];
+const MODES = { '띠 전체': false, '코드행만 크롭': true };
+const TARGET = 40;
+
+async function run() {
+  log('tesseract 준비 중…');
+  const worker = await Tesseract.createWorker('eng', 1);
+  const results = {};
+  for (const psm of PSMS) {
+    await worker.setParameters({
+      tessedit_pageseg_mode: psm,
+      tessedit_char_whitelist: 'ABCDEFGmajdinsugb#/()0123456789+-M',
+      user_defined_dpi: '300',
+    });
+    for (const [mode, doCrop] of Object.entries(MODES)) {
+      const key = `psm${psm} · ${mode}`;
+      results[key] = {};
+      for (const cap of CAPS) {
+        let hit = 0, want = 0, spurious = 0;
+        for (const band of BANDS) {
+          const small = makeBand(band, cap);
+          const gray = cloneCanvas(small);
+          toGray(gray.getContext('2d'), gray.width, gray.height);
+          const src = doCrop ? cropChordRow(gray) : gray;
+          const fed = scaleSmooth(src, TARGET / cap);
+          const { data } = await worker.recognize(fed);
+          const s = score(wordsToChords(data.words), band.ch);
+          hit += s.hit; want += s.want; spurious += s.spurious;
+        }
+        results[key][cap] = { hit, want, spurious };
+        log(`${key} · cap ${cap}px → ${hit}/${want} (오인식 ${spurious})`);
+      }
+    }
+  }
+  await worker.terminate();
+  render(results);
+  log('완료');
+}
+
+function render(results) {
+  const keys = Object.keys(results);
+  const totals = {}; keys.forEach(k => totals[k] = CAPS.reduce((a, c) => a + results[k][c].hit, 0));
+  const best = Math.max(...Object.values(totals));
+  let html = '<table><tr><th>설정</th>' + CAPS.map(c => `<th>${c}px</th><th>오인식</th>`).join('') + '<th>합계</th></tr>';
+  keys.forEach(k => {
+    html += `<tr><td>${k}</td>`;
+    CAPS.forEach(c => { const r = results[k][c]; html += `<td>${r.hit}/${r.want}</td><td>${r.spurious}</td>`; });
+    html += `<td class="${totals[k] === best ? 'best' : ''}">${totals[k]}</td></tr>`;
+  });
+  document.getElementById('out').innerHTML = html + '</table>';
+
+  const demo = document.getElementById('samples');
+  const small = makeBand(BANDS[2], 9);
+  const g = cloneCanvas(small); toGray(g.getContext('2d'), g.width, g.height);
+  demo.innerHTML = '<p>cap 9px 띠 전체(가사·마디번호·오선 포함)</p>';
+  demo.appendChild(scaleSmooth(g, 3));
+  const lab = document.createElement('p'); lab.textContent = '코드행만 크롭한 결과';
+  demo.appendChild(lab);
+  demo.appendChild(scaleSmooth(cropChordRow(g), 3));
+}
+
+run().catch(e => log('오류: ' + e.message));
+</script>

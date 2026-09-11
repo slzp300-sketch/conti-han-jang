@@ -1,0 +1,265 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>코드 인식 전처리 벤치</title>
+<style>
+  body { font: 13px/1.6 system-ui, sans-serif; margin: 20px; max-width: 1100px; }
+  h1 { font-size: 18px; }
+  table { border-collapse: collapse; margin: 12px 0; font-size: 12px; }
+  th, td { border: 1px solid #ccc; padding: 3px 8px; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  td.best { background: #d8f0d8; font-weight: 700; }
+  pre { background: #f5f5f5; padding: 8px; overflow-x: auto; font-size: 11px; }
+  canvas { border: 1px solid #ddd; margin: 2px; vertical-align: top; }
+  #log { white-space: pre-wrap; font-size: 12px; }
+</style>
+<h1>코드 인식 전처리 벤치</h1>
+<p id="log">준비 중…</p>
+<div id="out"></div>
+<div id="samples"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script>
+const log = m => { document.getElementById('log').textContent = m; console.log(m); };
+
+// ---------------------------------------------------------------- test data
+// A chord band as it appears on these sheets: bold serif symbols spaced along one line.
+const BANDS = [
+  ['G', 'D', 'Em7', 'C'],
+  ['A', 'E', 'F#m7', 'E', 'D'],
+  ['A/C#', 'D', 'A/E', 'F#m7', 'G'],
+  ['Bm7/F#', 'Esus4', 'E7', 'Dmaj7'],
+  ['C', 'G', 'D', 'Em7', 'C'],
+  ['F', 'Bb', 'Gm7', 'Csus4', 'Am'],
+];
+
+// Render one chord band the way a downscaled sheet capture looks:
+// draw large with a serif face, then resample down so cap height lands on `capPx`.
+function makeBand(chords, capPx) {
+  const BIG = 64;                       // font size used for the high-res draw
+  const capRatio = 0.66;                // cap height / font size for Times-ish serif
+  const scale = capPx / (BIG * capRatio);
+  const big = document.createElement('canvas');
+  const bx = big.getContext('2d');
+  bx.font = `bold ${BIG}px "Times New Roman", "Liberation Serif", serif`;
+  const gapPx = BIG * 2.2;
+  let w = BIG;
+  const xs = [];
+  chords.forEach(c => { xs.push(w); w += bx.measureText(c).width + gapPx; });
+  big.width = Math.ceil(w + BIG);
+  big.height = Math.ceil(BIG * 2);
+  const b2 = big.getContext('2d');
+  b2.fillStyle = '#fff'; b2.fillRect(0, 0, big.width, big.height);
+  b2.fillStyle = '#000';
+  b2.font = `bold ${BIG}px "Times New Roman", "Liberation Serif", serif`;
+  b2.textBaseline = 'alphabetic';
+  chords.forEach((c, i) => b2.fillText(c, xs[i], BIG * 1.4));
+  // resample down to the target size, the same way a shrunk screenshot is produced
+  const small = document.createElement('canvas');
+  small.width = Math.max(1, Math.round(big.width * scale));
+  small.height = Math.max(1, Math.round(big.height * scale));
+  const sx = small.getContext('2d');
+  sx.imageSmoothingEnabled = true; sx.imageSmoothingQuality = 'high';
+  sx.fillStyle = '#fff'; sx.fillRect(0, 0, small.width, small.height);
+  sx.drawImage(big, 0, 0, small.width, small.height);
+  return small;
+}
+
+// ---------------------------------------------------------------- helpers
+function cloneCanvas(src) {
+  const c = document.createElement('canvas');
+  c.width = src.width; c.height = src.height;
+  c.getContext('2d').drawImage(src, 0, 0);
+  return c;
+}
+// app's current greyscale + contrast stretch
+function toGray(ctx, w, h) {
+  const im = ctx.getImageData(0, 0, w, h), d = im.data;
+  for (let k = 0; k < d.length; k += 4) {
+    let l = 0.299 * d[k] + 0.587 * d[k + 1] + 0.114 * d[k + 2];
+    l = l < 60 ? 0 : l > 215 ? 255 : (l - 60) * 255 / 155;
+    d[k] = d[k + 1] = d[k + 2] = l; d[k + 3] = 255;
+  }
+  ctx.putImageData(im, 0, 0);
+}
+function scaleSmooth(src, f) {
+  const c = document.createElement('canvas');
+  c.width = Math.round(src.width * f); c.height = Math.round(src.height * f);
+  const x = c.getContext('2d');
+  x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high';
+  x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
+  x.drawImage(src, 0, 0, c.width, c.height);
+  return c;
+}
+// repeated 2x smooth steps approximate a bicubic enlargement better than one big jump
+function scaleStepped(src, f) {
+  let cur = src;
+  while (f > 2) { cur = scaleSmooth(cur, 2); f /= 2; }
+  return f > 1.001 ? scaleSmooth(cur, f) : cur;
+}
+function scaleNearest(src, f) {
+  const c = document.createElement('canvas');
+  c.width = Math.round(src.width * f); c.height = Math.round(src.height * f);
+  const x = c.getContext('2d');
+  x.imageSmoothingEnabled = false;
+  x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
+  x.drawImage(src, 0, 0, c.width, c.height);
+  return c;
+}
+// separable box blur on the luminance channel, radius r
+function blurLum(lum, w, h, r) {
+  const tmp = new Float32Array(w * h), out = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    let acc = 0;
+    for (let x = -r; x <= r; x++) acc += lum[y * w + Math.min(w - 1, Math.max(0, x))];
+    for (let x = 0; x < w; x++) {
+      tmp[y * w + x] = acc / (2 * r + 1);
+      acc -= lum[y * w + Math.min(w - 1, Math.max(0, x - r))];
+      acc += lum[y * w + Math.min(w - 1, Math.max(0, x + r + 1))];
+    }
+  }
+  for (let x = 0; x < w; x++) {
+    let acc = 0;
+    for (let y = -r; y <= r; y++) acc += tmp[Math.min(h - 1, Math.max(0, y)) * w + x];
+    for (let y = 0; y < h; y++) {
+      out[y * w + x] = acc / (2 * r + 1);
+      acc -= tmp[Math.min(h - 1, Math.max(0, y - r)) * w + x];
+      acc += tmp[Math.min(h - 1, Math.max(0, y + r + 1)) * w + x];
+    }
+  }
+  return out;
+}
+function unsharp(cv, amount, radius) {
+  const x = cv.getContext('2d'), im = x.getImageData(0, 0, cv.width, cv.height), d = im.data;
+  const n = cv.width * cv.height, lum = new Float32Array(n);
+  for (let i = 0; i < n; i++) lum[i] = d[i * 4];
+  const bl = blurLum(lum, cv.width, cv.height, radius);
+  for (let i = 0; i < n; i++) {
+    let v = lum[i] + amount * (lum[i] - bl[i]);
+    v = v < 0 ? 0 : v > 255 ? 255 : v;
+    d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = v;
+  }
+  x.putImageData(im, 0, 0);
+  return cv;
+}
+// Sauvola local threshold — handles uneven scans without eating thin strokes
+function sauvola(cv, r, k) {
+  const x = cv.getContext('2d'), im = x.getImageData(0, 0, cv.width, cv.height), d = im.data;
+  const w = cv.width, h = cv.height, n = w * h;
+  const lum = new Float32Array(n), sq = new Float32Array(n);
+  for (let i = 0; i < n; i++) { lum[i] = d[i * 4]; sq[i] = lum[i] * lum[i]; }
+  const mean = blurLum(lum, w, h, r), meanSq = blurLum(sq, w, h, r);
+  for (let i = 0; i < n; i++) {
+    const varr = Math.max(0, meanSq[i] - mean[i] * mean[i]);
+    const th = mean[i] * (1 + k * (Math.sqrt(varr) / 128 - 1));
+    const v = lum[i] > th ? 255 : 0;
+    d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = v;
+  }
+  x.putImageData(im, 0, 0);
+  return cv;
+}
+
+// ---------------------------------------------------------------- variants
+// each takes the small band canvas and the target upscale factor, returns what to feed OCR
+const VARIANTS = {
+  'V0 현재(smooth)':      (c, f) => scaleSmooth(c, f),
+  'V1 stepped':           (c, f) => scaleStepped(c, f),
+  'V2 stepped+unsharp':   (c, f) => unsharp(scaleStepped(c, f), 1.0, 2),
+  'V3 nearest+blur+sharp':(c, f) => unsharp(scaleNearest(c, f), 0.8, 2),
+  'V4 stepped+sauvola':   (c, f) => sauvola(scaleStepped(c, f), 8, 0.3),
+  'V5 unsharp+sauvola':   (c, f) => sauvola(unsharp(scaleStepped(c, f), 1.0, 2), 8, 0.3),
+};
+const PSMS = ['11', '7'];
+
+// ---------------------------------------------------------------- scoring
+// compare the chord strings OCR produced against the band's ground truth, in order
+function score(got, want) {
+  const norm = s => s.replace(/[♯]/g, '#').replace(/[♭]/g, 'b').trim();
+  const g = got.map(norm).filter(Boolean), wn = want.map(norm);
+  let hit = 0;
+  const pool = g.slice();
+  wn.forEach(t => { const i = pool.indexOf(t); if (i >= 0) { hit++; pool.splice(i, 1); } });
+  return { hit, want: wn.length, spurious: pool.length };
+}
+// tesseract words → plausible chord strings (same shape as the app's filter)
+function wordsToChords(words) {
+  const out = [];
+  words.forEach(w => {
+    const syms = (w.symbols || []).map(q => ({ t: q.text, x0: q.bbox.x0, x1: q.bbox.x1, y0: q.bbox.y0, y1: q.bbox.y1 }));
+    if (!syms.length) { if (/^[A-G]/.test(w.text.trim())) out.push(w.text.trim()); return; }
+    let cur = [];
+    const groups = [];
+    const flush = () => { if (cur.length) groups.push(cur); cur = []; };
+    syms.forEach((q, k) => { if (k && q.x0 - syms[k - 1].x1 > (q.y1 - q.y0) * 0.45 && /[A-G]/.test(q.t)) flush(); cur.push(q); });
+    flush();
+    groups.forEach(g => { const t = g.map(q => q.t).join(''); if (/^[A-G]/.test(t)) out.push(t); });
+  });
+  return out;
+}
+
+// ---------------------------------------------------------------- runner
+const CAPS = [7, 9, 12];       // chord cap-height in px: the low-res failure range
+const TARGET_CAP = 40;         // what we upscale the glyphs to before OCR
+
+async function run() {
+  log('tesseract 준비 중…');
+  const worker = await Tesseract.createWorker('eng', 1);
+  const results = {};           // variant|psm -> cap -> {hit,want,spurious}
+
+  for (const psm of PSMS) {
+    await worker.setParameters({
+      tessedit_pageseg_mode: psm,
+      tessedit_char_whitelist: 'ABCDEFGmajdinsugb#/()0123456789+-M',
+      user_defined_dpi: '300',
+    });
+    for (const [name, fn] of Object.entries(VARIANTS)) {
+      const key = `${name} · psm${psm}`;
+      results[key] = {};
+      for (const cap of CAPS) {
+        let hit = 0, want = 0, spurious = 0;
+        for (const band of BANDS) {
+          const small = makeBand(band, cap);
+          const gray = cloneCanvas(small);
+          toGray(gray.getContext('2d'), gray.width, gray.height);
+          const fed = fn(gray, TARGET_CAP / cap);
+          const { data } = await worker.recognize(fed);
+          const s = score(wordsToChords(data.words), band);
+          hit += s.hit; want += s.want; spurious += s.spurious;
+        }
+        results[key][cap] = { hit, want, spurious };
+        log(`${key} · cap ${cap}px → ${hit}/${want} (오인식 ${spurious})`);
+      }
+    }
+  }
+  await worker.terminate();
+  render(results);
+  log('완료');
+}
+
+function render(results) {
+  const keys = Object.keys(results);
+  let html = '<table><tr><th>전처리</th>' + CAPS.map(c => `<th>${c}px 맞음</th><th>${c}px 오인식</th>`).join('') + '<th>합계</th></tr>';
+  const totals = {};
+  keys.forEach(k => { totals[k] = CAPS.reduce((a, c) => a + results[k][c].hit, 0); });
+  const best = Math.max(...Object.values(totals));
+  keys.forEach(k => {
+    html += `<tr><td>${k}</td>`;
+    CAPS.forEach(c => { const r = results[k][c]; html += `<td>${r.hit}/${r.want}</td><td>${r.spurious}</td>`; });
+    html += `<td class="${totals[k] === best ? 'best' : ''}">${totals[k]}</td></tr>`;
+  });
+  html += '</table>';
+  document.getElementById('out').innerHTML = html;
+  // show what the smallest band actually looks like, raw and upscaled
+  const demo = document.getElementById('samples');
+  demo.innerHTML = '<p>가장 작은 조건(cap 7px) 원본과 확대 결과</p>';
+  const small = makeBand(BANDS[2], 7);
+  demo.appendChild(small);
+  Object.entries(VARIANTS).forEach(([n, fn]) => {
+    const g = cloneCanvas(small); toGray(g.getContext('2d'), g.width, g.height);
+    const c = fn(g, TARGET_CAP / 7);
+    const lab = document.createElement('div'); lab.textContent = n;
+    demo.appendChild(lab); demo.appendChild(c);
+  });
+}
+
+run().catch(e => log('오류: ' + e.message));
+</script>
