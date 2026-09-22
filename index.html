@@ -454,8 +454,8 @@
         <dd>이미지·PDF를 클릭·드래그·<code>Ctrl+V</code>. PDF가 가장 선명합니다.</dd>
         <dt>자르기 · 크기 <span class="ic">✂</span></dt>
         <dd>썸네일을 누르면 위·아래 잘라내기와 크기 조절. <b>인쇄 폭 100%</b>가 되면 꽉 찹니다.</dd>
-        <dt>키 바꾸기 <span class="ic">♯</span></dt>
-        <dd>썸네일 → ♯ → 코드 찾기 → 적용. <b>원래 키</b>를 먼저 확인하세요. 노랑은 확인 필요, 빨강은 못 읽음 — 눌러서 고칩니다.</dd>
+        <dt hidden>키 바꾸기 <span class="ic">♯</span></dt>
+        <dd hidden>썸네일 → ♯ → 코드 찾기 → 적용. <b>원래 키</b>를 먼저 확인하세요. 노랑은 확인 필요, 빨강은 못 읽음 — 눌러서 고칩니다.</dd>
         <dt>두 곡 한 장</dt>
         <dd>곡 카드의 <b>앞 곡과 같은 페이지에 넣기</b>. 악보가 여러 장이면 자르기 패널의 <b>앞 장과 같은 페이지에 넣기</b>. 폭이 모자라면 양쪽을 더 잘라내세요.</dd>
         <dt>악보 보관함</dt>
@@ -1842,7 +1842,7 @@
     const box = document.createElement('div');
     box.className = 'crop';
     box.innerHTML = `
-      <div class="crop-head"><span><b>악보 ${k + 1}</b> 위·아래 잘라내기</span><span><button type="button" class="tab" title="키 바꾸기">♯</button><button type="button" class="close" title="닫기">×</button></span></div>
+      <div class="crop-head"><span><b>악보 ${k + 1}</b> 위·아래 잘라내기</span><span>${keyPanelAllowed(im) ? `<button type="button" class="tab" title="${KEY_CHANGE_ON ? '키 바꾸기' : '원래 키로 되돌리기'}">♯</button>` : ''}<button type="button" class="close" title="닫기">×</button></span></div>
       <div class="crop-view"><img src="${im.src}" alt=""><div class="shade top"></div><div class="shade bot"></div></div>
       <label class="crop-row"><span>위에서</span><input type="range" id="ct-${song.id}-${k}" min="0" max="80" step="0.5" value="${im.top || 0}"><output>${im.top || 0}%</output></label>
       <label class="crop-row"><span>아래에서</span><input type="range" id="cb-${song.id}-${k}" min="0" max="80" step="0.5" value="${im.bottom || 0}"><output>${im.bottom || 0}%</output></label>
@@ -1874,13 +1874,18 @@
     const cj = $('.cjoin', box);
     if (cj) cj.addEventListener('change', e => { im.joinPrev = e.target.checked; render(); scheduleSave(); });
     $('.crop-head .close', box).addEventListener('click', () => { cropTarget = null; renderEditor(); });
-    $('.crop-head .tab', box).addEventListener('click', () => { cropTarget.mode = 'key'; renderEditor(); });
+    $('.crop-head .tab', box)?.addEventListener('click', () => { cropTarget.mode = 'key'; renderEditor(); });
     shadeT.style.height = (im.top || 0) + '%'; shadeB.style.height = (im.bottom || 0) + '%';
     setTimeout(refreshCropNote, 0);   // the preview has to lay out before it can be measured
     return box;
   }
 
   // ---------- key change (chord OCR + redraw) ----------
+  // 키 바꾸기는 잠시 꺼 둔다. 코드 인식이 원래 키부터 잘못 읽는 일이 있어서(96장 대조 때
+  // "갈급한 내 맘" G 를 C 로 읽었다) 틀린 악보를 그럴듯하게 찍어 낼 수 있다. 이미 키를
+  // 바꿔 둔 악보는 "원래대로" 만 할 수 있게 남긴다 — 되돌릴 길까지 막으면 안 된다.
+  const KEY_CHANGE_ON = false;
+  const keyPanelAllowed = im => KEY_CHANGE_ON || !!(im && im.orig);
   const KEYS = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
   const KEY_LABEL = { Db: 'D♭ / C#', Eb: 'E♭', Gb: 'G♭ / F#', Ab: 'A♭', Bb: 'B♭' };
   const SHARP_KEYS = new Set(['G', 'D', 'A', 'E', 'B']);   // C is written with flats (B♭, E♭, A♭ borrowed chords)
@@ -2343,6 +2348,11 @@
     const status = $('.key-status', box), view = $('.key-view', box), boxes = $('.boxes', box);
     const selF = $('select', box), selT = box.querySelectorAll('select')[1];
     const btnFind = $('.find', box), btnApply = $('.apply', box);
+    // 꺼 둔 동안 이 패널은 이미 키를 바꾼 악보에서만 열린다. 되돌리기만 남긴다.
+    if (!KEY_CHANGE_ON) {
+      btnFind.hidden = true; btnApply.hidden = true;
+      status.textContent = '키 바꾸기는 잠시 꺼 두었습니다. 이 악보는 원래대로 되돌릴 수만 있습니다.';
+    }
     let job = null;
 
     const zoom = $('.key-zoom input', box);
@@ -2471,13 +2481,14 @@
         const t = document.createElement('div');
         const active = cropTarget && cropTarget.songId === song.id && cropTarget.index === k;
         t.className = 'thumb' + (active ? ' active' : '') + ((im.top || im.bottom) ? ' cropped' : '');
-        t.innerHTML = `<img src="${im.src}" alt="${i + 1}번 곡 악보 ${k + 1}"><button class="pick" title="자르기 · 키 바꾸기"></button>${im.orig ? `<span class="kb">${escapeHtml(KEY_LABEL[im.keyTo] || im.keyTo || '')}</span>` : ''}<span class="page-no">${k + 1}</span><button class="x" title="이 악보 빼기">×</button>`;
+        t.innerHTML = `<img src="${im.src}" alt="${i + 1}번 곡 악보 ${k + 1}"><button class="pick" title="${KEY_CHANGE_ON ? '자르기 · 키 바꾸기' : '자르기 · 크기'}"></button>${im.orig ? `<span class="kb">${escapeHtml(KEY_LABEL[im.keyTo] || im.keyTo || '')}</span>` : ''}<span class="page-no">${k + 1}</span><button class="x" title="이 악보 빼기">×</button>`;
         $('.pick', t).addEventListener('click', () => { cropTarget = active ? null : { songId: song.id, index: k, mode: 'crop' }; renderEditor(); });
         $('.x', t).addEventListener('click', () => { song.images.splice(k, 1); cropTarget = null; render(); scheduleSave(); });
         thumbs.appendChild(t);
       });
       if (cropTarget && cropTarget.songId === song.id && song.images[cropTarget.index]) {
-        $('.crop-slot', el).appendChild(cropTarget.mode === 'key' ? buildKeyPanel(song, cropTarget.index) : buildCropPanel(song, cropTarget.index));
+        const im = song.images[cropTarget.index];
+        $('.crop-slot', el).appendChild(cropTarget.mode === 'key' && keyPanelAllowed(im) ? buildKeyPanel(song, cropTarget.index) : buildCropPanel(song, cropTarget.index));
       }
 
       if (savedFor === song.id) $('.saved-slot', el).appendChild(buildSheetPicker(song));
