@@ -27,7 +27,9 @@
     --radius: 10px;
     --font-ui: 'Pretendard Variable', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
     /* 한컴오피스 기본 글꼴(함초롬바탕). 설치돼 있지 않은 PC에서는 바탕 → Noto Serif KR 순서로 대신 씁니다 */
-    --font-form: 'HCR Batang', '함초롬바탕', 'HCR Batang LVT', 'Hancom Batang', 'Batang', '바탕', 'Noto Serif KR', 'Nanum Myeongjo', serif;
+    /* 송폼은 인쇄해서 무대에서 흘깃 보는 글자다. 바탕 계열보다 획이 고른 산세리프가 멀리서 잘 읽힌다.
+       Pretendard 는 이미 CDN 으로 받아 두었고, 없으면 기기 기본 한글 산세리프로 내려간다. */
+    --font-form: 'Pretendard Variable', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
     --font-mono: 'IBM Plex Mono', 'Courier New', monospace;
   }
   @media (prefers-color-scheme: dark) {
@@ -1693,19 +1695,28 @@
       : `인쇄 폭 ${pct}%.` + (shared ? ' 같은 페이지의 악보를 더 잘라내면 둘 다 커집니다.' : ' 위·아래를 더 잘라내면 커집니다.');
   }
 
-  const FORM_PT = [21, 19, 17, 15, 13, 11];
+  // 아주 긴 송폼도 칸 안에 들어가도록 아래쪽을 넓혔다. 11pt 에서 멈추면 그 아래는 칸을 넘친다.
+  const FORM_PT = [21, 19, 17, 15, 13, 11, 10, 9, 8];
   function fitFormBars(root) {
     root.querySelectorAll('.form-bar .txt').forEach(el => {
       if (el.querySelector('.ph')) { el.style.fontSize = ''; return; }
       // Ask the layout how many lines it actually took rather than predicting the width: predicting
       // lands wrong right at the boundary, and the preview's scale skews any rect-based guess.
       // clientHeight and line-height are both unscaled CSS pixels, so this stays honest.
+      // 줄 수만 보면 가로로 넘치는 경우를 놓친다. 끊기지 않는 구획(`.sec`)이 칸보다 넓으면
+      // 한 줄이면서 옆으로 삐져나간다. scrollWidth 는 overflow:visible 일 때 넘친 폭을
+      // 돌려주지 않으므로, 재는 동안만 hidden 으로 두고 끝나면 되돌린다.
+      const keep = el.style.overflow;
+      el.style.overflow = 'hidden';
       for (const pt of FORM_PT) {
         el.style.fontSize = pt + 'pt';
         const cs = getComputedStyle(el);
         const inner = el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
-        if (inner <= parseFloat(cs.lineHeight) * 1.5) break;
+        const oneLine = inner <= parseFloat(cs.lineHeight) * 1.5;
+        const fitsWide = el.scrollWidth <= el.clientWidth + 1;
+        if (oneLine && fitsWide) break;
       }
+      el.style.overflow = keep;
     });
   }
 
