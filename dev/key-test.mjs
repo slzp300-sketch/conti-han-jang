@@ -12,12 +12,16 @@ const src = await readFile('index.html', 'utf8');
 const swaps = [
   [/const KEY_CHANGE_ON = false;/, 'const KEY_CHANGE_ON = true;'],
   [/const CLOUD = \{[^}]*\};/, "const CLOUD = { url: '', anon: '' };"],
+  // 인식 속을 들여다보려고 내부 함수를 창에 걸어 둔다. 시험 사본에만 있다.
+  ['  // ---------- editor rendering ----------',
+   '  window.__dbg = { findChords, parseChord, splitGlued, cropChordRow, findStaves, wordsToTokens, mergeRuns };\n  // ---------- editor rendering ----------'],
 ];
 
 let out = src;
-for (const [re, to] of swaps) {
-  if (!re.test(out)) { console.error(`찾지 못했습니다: ${re}`); process.exit(1); }
-  out = out.replace(re, to);
+for (const [find, to] of swaps) {
+  const hit = typeof find === 'string' ? out.includes(find) : find.test(out);
+  if (!hit) { console.error(`찾지 못했습니다: ${find}`); process.exit(1); }
+  out = out.replace(find, to);
 }
 
 await writeFile('dev/key-test.html', out);

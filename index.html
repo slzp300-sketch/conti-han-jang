@@ -1727,24 +1727,35 @@
 
   // ---------- image intake ----------
   // image = { src, w, h, top, bottom }  (top/bottom: % of height trimmed away)
-  function fileToImage(file) {
-    return new Promise((res, rej) => {
-      const img = new Image();
-      const url = URL.createObjectURL(file);
-      img.onload = () => {
-        const MAX = 2000;
-        const scale = Math.min(1, MAX / Math.max(img.width, img.height));
-        const c = document.createElement('canvas');
-        c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
-        const ctx = c.getContext('2d');
-        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
-        ctx.drawImage(img, 0, 0, c.width, c.height);
-        URL.revokeObjectURL(url);
-        res({ src: c.toDataURL('image/jpeg', 0.9), w: c.width, h: c.height, top: 0, bottom: 0, scale: 1 });
-      };
-      img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('이미지를 읽을 수 없습니다')); };
-      img.src = url;
-    });
+  // 줄일 필요가 없으면 **파일 바이트를 그대로 쓴다.** 예전에는 무조건 JPEG 0.9 로 다시 구웠는데,
+  // 악보처럼 가는 선과 작은 글자에는 그 손실이 치명적이었다. 같은 악보에서 원본으로는 찾던 코드
+  // `F` 하나를 통째로 놓치고 `B♭7` 의 7 이 떨어졌다. 코드 인식은 이 그림을 그대로 읽는다.
+  async function fileToImage(file) {
+    let src, img;
+    try {
+      src = await blobToDataUrl(file);
+      img = await new Promise((res, rej) => { const p = new Image(); p.onload = () => res(p); p.onerror = rej; p.src = src; });
+    } catch (e) { throw new Error('이미지를 읽을 수 없습니다'); }
+    const MAX = 2000;
+    const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+    const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+    // 투명한 채로 한 번 그려 본다 — 투명한 PNG 는 흰 바탕을 깔아야 해서 원본을 그대로 쓸 수 없다
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const ctx = c.getContext('2d');
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, w, h);
+    let seeThrough = false;
+    try {
+      const d = ctx.getImageData(0, 0, w, h).data;
+      for (let i = 3; i < d.length; i += 4) if (d[i] < 250) { seeThrough = true; break; }
+    } catch (e) { seeThrough = true; }
+    if (scale === 1 && !seeThrough) return { src, w, h, top: 0, bottom: 0, scale: 1 };
+    // 줄여야 하거나 바탕을 깔아야 할 때만 다시 굽는다. 그때도 0.95 로 — 뭉개지면 코드를 못 읽는다.
+    const out = document.createElement('canvas'); out.width = w; out.height = h;
+    const ox = out.getContext('2d');
+    ox.fillStyle = '#fff'; ox.fillRect(0, 0, w, h);
+    ox.drawImage(c, 0, 0);
+    return { src: out.toDataURL('image/jpeg', 0.95), w, h, top: 0, bottom: 0, scale: 1 };
   }
   // PDF pages are rendered at ~2000px wide, which is what chord recognition needs (phone screenshots are far too small)
   async function pdfToImages(file, onStatus) {
@@ -1921,6 +1932,10 @@
   const KNOWN = /^(|m|M|maj|min|dim|aug|\+|-|°|sus|sus2|sus4|add2|add4|add9|2|4|5|6|7|9|11|13|M7|maj7|m7|min7|mM7|69|m6|dim7|m7\(?b5\)?|7sus4|7sus|9sus4|M9|maj9|m9|7\(?b9\)?|7\(?#9\)?|7\(?b5\)?|7\(?#5\)?|aug7|\+7|add\(?9\)?|24|sus\(?4\)?|\(?sus4\)?|\(?add2\)?|\(?add9\)?|\(?sus2\)?|\(?add4\)?)$/;
   // "Dm7/F" → { root:'D', rest:'m7', bass:'F', known:true }; text that cannot be a chord → null
   function parseChord(text) {
+    // "/F" 처럼 베이스만 적은 자리 — 코드는 앞과 같고 베이스만 바뀐다는 표기다.
+    // 온전한 코드로 읽으면 뜻이 달라지므로 따로 다룬다.
+    const only = text.match(/^\/([A-G])([#♯b♭]?)$/);
+    if (only) return { root: null, rest: '', bass: only[1] + (only[2] || ''), bassOnly: true, known: true };
     const m = text.match(/^([A-G])([#♯b♭]?)(.*?)(?:\/([A-G])([#♯b♭]?))?$/);
     if (!m) return null;
     const rest = m[3] || '';
@@ -1928,6 +1943,10 @@
     return { root: m[1] + (m[2] || ''), rest, bass: m[4] ? m[4] + (m[5] || '') : null, known: KNOWN.test(rest.replace(/[♭♯]/g, c => c === '♭' ? 'b' : '#')) };
   }
   function transposeChord(parsed, semis, targetKey) {
+    if (parsed.bassOnly) {
+      const b = spell((pitchClass(parsed.bass) + semis) % 12, targetKey);
+      return { root: null, bass: b, text: '/' + b };
+    }
     const root = spell((pitchClass(parsed.root) + semis) % 12, targetKey);
     const bass = parsed.bass ? spell((pitchClass(parsed.bass) + semis) % 12, targetKey) : null;
     return { root, bass, text: root + parsed.rest + (bass ? '/' + bass : '') };
@@ -1936,7 +1955,7 @@
   // OCR drops ♭/♯ often. In the chosen key, a bare letter that is off-key while its flat/sharp twin is a
   // strong scale degree (I ii iii IV V vi) almost certainly lost its accidental: B → B♭ in B♭ major, F → F♯ in A.
   function repairForKey(text, key) {
-    const pr = parseChord(text); if (!pr) return text;
+    const pr = parseChord(text); if (!pr || pr.bassOnly) return text;
     const flat = !SHARP_KEYS.has(key), tonic = pitchClass(key);
     const dia = new Set([0, 2, 4, 5, 7, 9, 11].map(x => (tonic + x) % 12));
     const strong = new Set([0, 2, 4, 5, 7, 9].map(x => (tonic + x) % 12));
@@ -1963,7 +1982,7 @@
       let sc = 0;
       tokens.forEach((t, i) => {
         const pr = parseChord(mendForKey(t.raw || t.text, k));
-        if (!pr) return;
+        if (!pr || pr.bassOnly) return;      // 베이스만 있는 자리는 조성을 말해 주지 않는다
         if (!pr.known) { sc -= 0.3; return; }
         const p = pitchClass(pr.root);
         if (!dia.has(p)) { sc -= 0.7; return; }
@@ -1995,7 +2014,9 @@
     for (const b of bases) {
       if (ok(b)) return b;
       for (let i = 1; i < b.length; i++) {
-        if (!/[E2gs4]/.test(b[i])) continue;
+        // ♯ 은 E 2 g s 4 로, ♭ 은 ) 6 으로 잘못 읽힌다 (`C/B♭` 이 `C/B)` 로 왔다).
+        // 이미 제대로 읽힌 코드는 위에서 일찍 돌아가므로 `F6` 같은 진짜 코드는 건드리지 않는다.
+        if (!/[E2gs4)6]/.test(b[i])) continue;
         let c = null;
         if (/[A-G]/.test(b[i - 1])) c = b.slice(0, i) + acc + b.slice(i + 1);
         else if (/[#b♯♭]/.test(b[i - 1])) c = b.slice(0, i) + b.slice(i + 1);
@@ -2223,7 +2244,7 @@
         // chords sit just above their staff; lyrics (one or two lines) hang under the staff above
         if (!(dTop <= staffH * 0.8 || (dTop <= staffH * 1.3 && dTop < dBot))) return;
         if (g[g.length - 1].x1 < s.x0 + s.gap || g[0].x0 > s.x1) return;   // left of the staff (bar numbers) or past its end
-        if (!/^[A-G]/.test(text)) return;               // junk
+        if (!/^\/?[A-G]/.test(text)) return;               // junk ("/F" 처럼 베이스만 적은 것은 남긴다)
         out.push({ x0: g[0].x0, x1: g[g.length - 1].x1, y0, y1, text, raw: text, syms: g, staff: st, conf, manual: false });
       });
     });
@@ -2231,6 +2252,23 @@
   }
 
   // → { tokens, w, h, img, lowRes }
+  // 한 단의 코드는 모두 한 줄에 놓인다. 그 줄에서 벗어나 혼자 떠 있는 것은 코드가 아니라 제목
+  // 상자나 리허설 기호를 잘못 읽은 것이다(「그의 안에서」 상자가 `A` 로 읽혀 악보에 없는 코드가
+  // 하나 생겼다). 단마다 가장 많이 모인 높이를 코드행으로 보고, 거기서 벗어난 소수를 버린다.
+  function onChordLine(tokens, med) {
+    const keep = [];
+    const byStaff = new Map();
+    tokens.forEach(t => { const a = byStaff.get(t.staff) || []; a.push(t); byStaff.set(t.staff, a); });
+    byStaff.forEach(list => {
+      if (list.length < 3) { keep.push(...list); return; }   // 너무 적으면 어느 쪽이 다수인지 못 정한다
+      const ys = list.map(t => t.y0).sort((a, b) => a - b);
+      const mid = ys[ys.length >> 1];
+      const near = list.filter(t => Math.abs(t.y0 - mid) <= med * 0.8);
+      keep.push(...(near.length >= list.length - near.length ? near : list));
+    });
+    return keep;
+  }
+
   async function findChords(src, onStatus) {
     const img = await new Promise((res, rej) => { const p = new Image(); p.onload = () => res(p); p.onerror = rej; p.src = src; });
     const W = img.width, H = img.height;
@@ -2283,6 +2321,7 @@
     // chord symbols on one sheet are all about the same height — drop outliers (stray beams, big titles)
     const hs = tokens.map(t => t.y1 - t.y0).sort((a, b) => a - b), med = hs[hs.length >> 1] || gap * 1.5;
     tokens = splitGlued(tokens.filter(t => (t.y1 - t.y0) > med * 0.5 && (t.y1 - t.y0) < med * 1.8));
+    tokens = onChordLine(tokens, med);
     tokens.sort((a, b) => a.staff - b.staff || a.x0 - b.x0);
     const voted = crossVote(c, tokens);
     return { tokens, w: W, h: H, img, lowRes, voted };
