@@ -262,6 +262,7 @@
   .song-head { display: flex; align-items: center; gap: 8px; }
   .song-head .num { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-family: var(--font-mono); font-size: 12px; font-weight: 500; flex-shrink: 0; }
   .song-head .title-input { flex: 1; padding: 6px 10px; }
+  .song-head .song-key { flex: 0 0 auto; width: 5.4em; padding: 6px 4px; font-size: 12px; }
   .song-head .icon { background: transparent; border: 1px solid transparent; color: var(--muted); border-radius: 6px; width: 28px; height: 28px; padding: 0; line-height: 1; }
   .song-head .icon:hover { color: var(--ink); border-color: var(--line-strong); background: var(--panel-2); }
   .song-head .icon.del:hover { color: var(--danger); border-color: var(--danger); }
@@ -376,7 +377,9 @@
   /* fitSheets gives each sheet an explicit height so every sheet on a page shares one scale;
      the flex values below are only what shows before that runs */
   .block { display: flex; flex-direction: column; gap: 4mm; min-height: 0; flex: 0 0 auto; }
-  .sheet { flex: 1 1 auto; min-height: 0; display: flex; align-items: flex-start; justify-content: center; }
+  .sheet { position: relative; flex: 1 1 auto; min-height: 0; display: flex; align-items: flex-start; justify-content: center; }
+  /* 연주할 키. 악보 왼쪽 위에 얹는다 — 악보를 가리지 않도록 모서리에 붙이고 바탕을 깐다. */
+  .song-key-tag { position: absolute; left: 0; top: 0; z-index: 2; font-family: var(--font-form); font-weight: 700; font-size: 15pt; line-height: 1; color: #000; background: #fff; border: 0.5mm solid #000; border-radius: 1.2mm; padding: 1.2mm 2.4mm; }
   .sheet img { max-width: 100%; object-fit: contain; display: block; }
   .sheet .placeholder { align-self: stretch; flex: 1; border: 0.4mm dashed #bbb; display: flex; align-items: center; justify-content: center; color: #aaa; font-size: 14pt; }
 
@@ -459,8 +462,10 @@
         <dd>이미지·PDF를 클릭·드래그하거나 <b>아무 데서나 <code>Ctrl+V</code></b>. 지금 보고 있는 곡 카드에 들어가고, 없으면 맨 끝 곡입니다. PDF가 가장 선명합니다.</dd>
         <dt>자르기 · 크기 <span class="ic">✂</span></dt>
         <dd>썸네일을 누르면 위·아래 잘라내기와 크기 조절. <b>인쇄 폭 100%</b>가 되면 꽉 찹니다.</dd>
-        <dt hidden>키 바꾸기 <span class="ic">♯</span></dt>
-        <dd hidden>썸네일 → ♯ → 코드 찾기 → 적용. <b>원래 키</b>를 먼저 확인하세요. 노랑은 확인 필요, 빨강은 못 읽음 — 눌러서 고칩니다.</dd>
+        <dt>키 바꾸기 <span class="ic">♯</span></dt>
+        <dd>썸네일 → ♯ → 코드 찾기 → 적용. <b>원래 악보는 그대로 두고 새 코드를 빨갛게 위에 적습니다.</b> <b>원래 키</b>를 먼저 확인하세요. 노랑은 확인 필요, 빨강은 못 읽음 — 눌러서 고칩니다.</dd>
+        <dt>곡의 키</dt>
+        <dd>곡 제목 옆에서 고르면 악보 왼쪽 위에 표시됩니다.</dd>
         <dt>두 곡 한 장</dt>
         <dd>곡 카드의 <b>앞 곡과 같은 페이지에 넣기</b>. 악보가 여러 장이면 자르기 패널의 <b>앞 장과 같은 페이지에 넣기</b>. 폭이 모자라면 양쪽을 더 잘라내세요.</dd>
         <dt>악보 보관함</dt>
@@ -1277,7 +1282,7 @@
   // ---------- state ----------
   const $ = (s, el = document) => el.querySelector(s);
   const uid = () => Math.random().toString(36).slice(2, 9);
-  const newSong = () => ({ id: uid(), title: '', form: '', images: [], joinPrev: false, folded: false });
+  const newSong = () => ({ id: uid(), title: '', form: '', key: '', images: [], joinPrev: false, folded: false });
   const newConti = () => ({ id: uid(), title: '', songs: [newSong()], updatedAt: Date.now() });
   let state = newConti();
   const isEmpty = c => !c.title && c.songs.every(s => !s.title && !s.form.trim() && !s.images.length);
@@ -1830,6 +1835,7 @@
     s.songs.forEach(song => {
       song.joinPrev = !!song.joinPrev;
       song.folded = !!song.folded;
+      if (typeof song.key !== 'string') song.key = '';   // 이 기능 이전에 만든 콘티
       song.images = song.images.map(im => typeof im === 'string' ? { src: im, w: 0, h: 0, top: 0, bottom: 0 } : im);
       song.images.forEach(im => {
         if (im.scale == null) im.scale = 1;   // sheets saved before the size control existed
@@ -1910,10 +1916,10 @@
   }
 
   // ---------- key change (chord OCR + redraw) ----------
-  // 키 바꾸기는 잠시 꺼 둔다. 코드 인식이 원래 키부터 잘못 읽는 일이 있어서(96장 대조 때
-  // "갈급한 내 맘" G 를 C 로 읽었다) 틀린 악보를 그럴듯하게 찍어 낼 수 있다. 이미 키를
-  // 바꿔 둔 악보는 "원래대로" 만 할 수 있게 남긴다 — 되돌릴 길까지 막으면 안 된다.
-  const KEY_CHANGE_ON = false;
+  // 2026-09-30: 다시 켰다. 악보 세 장으로 확인하며 결함 넷을 고쳤고(재압축으로 코드를 잃던 것,
+  // 제목 상자를 코드로 읽던 것, 베이스만 적은 자리, ♭ 을 ) 로 읽던 것), 덮어 그리기를 덧쓰기로
+  // 바꿔 원본이 그대로 남는다. 되돌리기 위해 상수는 남겨 둔다.
+  const KEY_CHANGE_ON = true;
   const keyPanelAllowed = im => KEY_CHANGE_ON || !!(im && im.orig);
   const KEYS = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
   const KEY_LABEL = { Db: 'D♭ / C#', Eb: 'E♭', Gb: 'G♭ / F#', Ab: 'A♭', Bb: 'B♭' };
@@ -2531,6 +2537,10 @@
         <div class="song-head">
           <span class="num">${i + 1}</span>
           <input type="text" class="title-input" id="title-${song.id}" placeholder="곡 제목 (선택)" value="${escapeHtml(song.title)}">
+          <select class="song-key" id="key-${song.id}" title="이 곡을 연주할 키">
+            <option value="">키</option>
+            ${KEYS.map(x => `<option value="${x}" ${x === song.key ? 'selected' : ''}>${KEY_LABEL[x] || x}</option>`).join('')}
+          </select>
           <button class="icon" data-act="fold" title="${song.folded ? '펼치기' : '접기'}">${song.folded ? '▸' : '▾'}</button>
           <button class="icon" data-act="dup" title="이 곡 복제">⧉</button>
           <button class="icon" data-act="up" title="위로" ${i === 0 ? 'disabled' : ''}>↑</button>
@@ -2565,6 +2575,7 @@
       $('.from-lib', el).addEventListener('click', () => { savedFor = savedFor === song.id ? null : song.id; cropTarget = null; renderEditor(); });
 
       $('.title-input', el).addEventListener('input', e => { song.title = e.target.value; syncSheetMeta(song); renderPreview(); scheduleSave(); });
+      $('.song-key', el).addEventListener('change', e => { song.key = e.target.value; renderPreview(); scheduleSave(); });
       $('textarea', el).addEventListener('input', e => { song.form = e.target.value; syncSheetMeta(song); renderPreview(); scheduleSave(); });
       $('textarea', el).addEventListener('paste', e => {
         const files = imagesInClipboard(e.clipboardData);
@@ -2648,7 +2659,7 @@
             <div class="lab">Song Form</div>
             <div class="txt">${renderForm(song.form)}</div>
           </div>`}
-          <div class="sheet">${sheet}</div>`;
+          <div class="sheet">${(!sameSongAbove && song.key) ? `<span class="song-key-tag">${escapeHtml(pretty(song.key))}</span>` : ''}${sheet}</div>`;
         p.appendChild(b);
       });
       wrap.appendChild(p);
