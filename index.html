@@ -2289,55 +2289,64 @@
   }
 
   // draw a transposed copy. Root/bass letters are repainted; every other symbol keeps its original pixels.
-  function paintTransposed(job, semis, targetKey) {
+  // 원본은 한 점도 건드리지 않고, 코드행마다 위에 흰 띠를 끼워 넣어 새 코드를 빨간 글씨로 적는다.
+  // 예전처럼 코드를 덮어 그리면 조표와 음표가 옛 키 그대로라서 한 장 안에서 두 키가 싸웠고,
+  // 못 읽은 코드는 옛 키로 남아 섞였다. 덧쓰기는 원본이 그대로 보이므로 그런 모순이 생기지 않는다.
+  // 연주자가 연필로 새 코드를 위에 적어 두는 방식 그대로다.
+  function paintAnnotated(job, semis, targetKey) {
     const { img, w, h, tokens } = job;
-    const c = document.createElement('canvas'); c.width = w; c.height = h;
-    const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0);
-    const font = px => `${px}px "Times New Roman", "HCR Batang", "Batang", "Noto Serif KR", serif`;
-    tokens.forEach(tk => {
-      if (tk.deleted) return;
-      const parsed = parseChord(tk.text); if (!parsed) return;
-      const tr = transposeChord(parsed, semis, targetKey);
-      const pad = 3, y0 = tk.y0 - pad, y1 = tk.y1 + pad;
-      const capH = tk.syms.length ? Math.max(...tk.syms.filter(s => /[A-G]/.test(s.t)).map(s => s.y1 - s.y0), 0) || (tk.y1 - tk.y0) : (tk.y1 - tk.y0);
-      const px = Math.round(capH / 0.68);
-      ctx.font = font(px); ctx.fillStyle = '#000'; ctx.textBaseline = 'alphabetic';
-      const baseline = tk.syms.length ? Math.max(...tk.syms.filter(s => /[A-G]/.test(s.t)).map(s => s.y1)) || tk.y1 : tk.y1;
-      // build parts: root text, then original pixels of everything up to the slash, then bass text, then the rest
-      const parts = [];
-      let i = 0;
-      const s = tk.syms;
-      if (tk.manual || tk.redraw || !s.length) {   // reading no longer matches the symbols — repaint it whole
-        parts.push({ text: pretty(tr.text) });
-      } else {
-        i = 1; if (s[i] && /^[#♯b♭]$/.test(s[i].t) && parsed.root.length > 1) i++;   // skip root accidental (if OCR saw one)
-        parts.push({ text: pretty(tr.root) });
-        const slash = s.findIndex((x, k) => k >= i && x.t === '/');
-        if (parsed.bass && slash >= 0) {
-          if (slash > i) parts.push({ keep: [s[i].x0, s[slash - 1].x1] });
-          parts.push({ keep: [s[slash].x0, s[slash].x1] });
-          let j = slash + 1; j++; if (s[j] && /^[#♯b♭]$/.test(s[j].t) && parsed.bass.length > 1) j++;
-          parts.push({ text: pretty(tr.bass) });
-          if (j < s.length) parts.push({ keep: [s[j].x0, s[s.length - 1].x1] });
-        } else if (i < s.length) {
-          parts.push({ keep: [s[i].x0, s[s.length - 1].x1] });
-        }
-      }
-      // measure, clear, then paint left to right
-      const widths = parts.map(p => p.text ? ctx.measureText(p.text).width : (p.keep[1] - p.keep[0]));
-      const total = widths.reduce((a, b) => a + b, 0);
-      const x0 = tk.x0 - pad, x1 = Math.max(tk.x1 + pad, tk.x0 + total + pad);
-      // keep-parts must be copied from the untouched original, so grab them before clearing
-      const keeps = parts.map(p => p.keep ? ctx.getImageData(p.keep[0], y0, Math.max(1, p.keep[1] - p.keep[0]), y1 - y0) : null);
-      ctx.fillStyle = '#fff'; ctx.fillRect(x0, y0, x1 - x0, y1 - y0); ctx.fillStyle = '#000';
-      let x = tk.x0;
-      parts.forEach((p, k) => {
-        if (p.text) { ctx.fillText(p.text, x, baseline); x += widths[k]; }
-        else { ctx.putImageData(keeps[k], Math.round(x), y0); x += widths[k] + 1; }
-      });
-      tk.drawn = { x0, y0, x1: Math.round(x) + pad, y1, text: tr.text };
+    const live = tokens.filter(tk => !tk.deleted);
+    const capOf = tk => {
+      const caps = tk.syms ? tk.syms.filter(x => /[A-G]/.test(x.t)).map(x => x.y1 - x.y0) : [];
+      return caps.length ? Math.max(...caps) : (tk.y1 - tk.y0);
+    };
+    // 같은 높이에 있는 코드끼리 한 줄로 묶는다. 줄마다 위에 띠를 하나씩 끼운다.
+    const rows = [];
+    [...live].sort((a, b) => a.y0 - b.y0).forEach(tk => {
+      const hgt = tk.y1 - tk.y0;
+      const row = rows.find(r => Math.abs(r.top - tk.y0) <= hgt * 1.2);
+      if (row) { row.top = Math.min(row.top, tk.y0); row.cap = Math.max(row.cap, capOf(tk)); row.items.push(tk); }
+      else rows.push({ top: tk.y0, cap: capOf(tk), items: [tk] });
     });
-    return c.toDataURL('image/jpeg', 0.92);
+    rows.sort((a, b) => a.top - b.top);
+    rows.forEach(r => { r.band = Math.max(10, Math.round(r.cap * 1.75)); });
+
+    const grown = rows.reduce((n, r) => n + r.band, 0);
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h + grown;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+
+    // 원본을 띠 자리마다 끊어서 옮겨 붙인다. 그림 자체는 하나도 고치지 않는다.
+    let srcY = 0, dstY = 0;
+    rows.forEach(r => {
+      const cut = Math.max(srcY, r.top);
+      if (cut > srcY) ctx.drawImage(img, 0, srcY, w, cut - srcY, 0, dstY, w, cut - srcY);
+      dstY += cut - srcY; srcY = cut;
+      dstY += r.band;                 // 흰 띠
+      r.shift = dstY - srcY;          // 이 줄부터 아래로 밀린 만큼
+    });
+    if (srcY < h) ctx.drawImage(img, 0, srcY, w, h - srcY, 0, dstY, w, h - srcY);
+
+    const font = px => `${px}px "Times New Roman", "HCR Batang", "Batang", "Noto Serif KR", serif`;
+    ctx.textBaseline = 'alphabetic';
+    let written = 0, skipped = 0;
+    rows.forEach(r => {
+      const px = Math.max(8, Math.round(r.cap / 0.68 * 0.92));
+      ctx.font = font(px);
+      const baseline = r.top + r.shift - Math.round(r.band * 0.22);
+      r.items.forEach(tk => {
+        const parsed = parseChord(tk.text);
+        if (!parsed) { skipped++; return; }       // 못 읽은 코드는 적지 않는다. 틀린 것을 적느니 비운다.
+        const text = pretty(transposeChord(parsed, semis, targetKey).text);
+        const tw = ctx.measureText(text).width;
+        const x = Math.min(Math.max(0, tk.x0), w - tw - 1);
+        ctx.fillStyle = '#c0322b';
+        ctx.fillText(text, x, baseline);
+        written++;
+      });
+    });
+    return { src: c.toDataURL('image/jpeg', 0.92), written, skipped, rows: rows.length };
   }
 
   function buildKeyPanel(song, k) {
@@ -2452,11 +2461,15 @@
       if (!job) return;
       if (!im.orig) im.orig = im.src;
       im.keyFrom = selF.value; im.keyTo = selT.value;
-      im.src = paintTransposed(job, semis(), selT.value);
+      const out = paintAnnotated(job, semis(), selT.value);
+      im.src = out.src;
       cropCache.clear();
       syncSheetMeta(song);        // the original's key is known now, so it can be named properly
       archiveTransposed(song, im);
       render(); scheduleSave();
+      status.textContent = `새 코드 ${out.written}개를 원래 코드 위에 적었습니다.`
+        + (out.skipped ? ` 못 읽은 ${out.skipped}개는 비워 뒀습니다 — 원래 코드를 보고 직접 적으세요.` : '')
+        + ' 악보와 음표는 그대로입니다.';
     });
     $('.revert', box)?.addEventListener('click', () => {
       im.src = im.orig; delete im.orig; delete im.keyFrom; delete im.keyTo;
