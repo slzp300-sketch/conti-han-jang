@@ -144,6 +144,9 @@
   .lib .peek-shots { display: flex; gap: 4px; flex-wrap: wrap; }
   .lib .peek-shots img { width: 42px; height: 56px; object-fit: cover; object-position: top; background: #fff; border: 1px solid var(--line); border-radius: 3px; }
   .lib .peek-none { font-size: 11px; color: var(--muted); }
+  /* 붙여넣은 악보가 어느 곡으로 갔는지 알려 준다. 말없이 넣으면 안 들어간 줄 안다. */
+  .paste-note { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 60; max-width: 80vw; padding: 8px 14px; border-radius: 999px; background: var(--ink); color: var(--bg); font-size: 12px; box-shadow: 0 4px 14px rgba(0,0,0,.25); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .paste-note[hidden] { display: none; }
   .sheets .sh-big { width: 100%; height: auto; background: #fff; border: 1px solid var(--line); border-radius: 4px; cursor: zoom-in; display: block; }
   /* month / initial folds */
   .lib li.group { display: block; padding: 0; border-bottom: 1px solid var(--line); background: var(--panel-2); }
@@ -360,7 +363,7 @@
     scroll-margin-top: 70px;   /* the sticky topbar sits over the top of the preview */
   }
   .form-bar { display: grid; grid-template-columns: 28mm 1fr; border: 0.6mm solid #000; min-height: 14mm; }
-  .form-bar .lab { display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 12pt; border-right: 0.6mm solid #000; background: #fff; }
+  .form-bar .lab { display: flex; align-items: center; justify-content: center; font-family: var(--font-form); font-weight: 600; font-size: 12pt; letter-spacing: .02em; border-right: 0.6mm solid #000; background: #fff; }
   /* block, not flex: as a flex container every text run and every <span> became its own item and
      wrapped on its own, which tore "V-C-V-C-B-{C(목소리)}" into interleaved pieces */
   /* min-width:0 — a grid track is auto-minimum by default, so a long form would widen the bar past
@@ -453,7 +456,7 @@
         <dt>송폼</dt>
         <dd><code>{C(목소리)}</code> → <span class="r">빨간색</span>, 괄호 안은 작게. <code>B*6</code>은 그대로.</dd>
         <dt>악보 넣기</dt>
-        <dd>이미지·PDF를 클릭·드래그·<code>Ctrl+V</code>. PDF가 가장 선명합니다.</dd>
+        <dd>이미지·PDF를 클릭·드래그하거나 <b>아무 데서나 <code>Ctrl+V</code></b>. 지금 보고 있는 곡 카드에 들어가고, 없으면 맨 끝 곡입니다. PDF가 가장 선명합니다.</dd>
         <dt>자르기 · 크기 <span class="ic">✂</span></dt>
         <dd>썸네일을 누르면 위·아래 잘라내기와 크기 조절. <b>인쇄 폭 100%</b>가 되면 꽉 찹니다.</dd>
         <dt hidden>키 바꾸기 <span class="ic">♯</span></dt>
@@ -486,6 +489,8 @@
     <div class="fit" id="fit"><div class="pages" id="pages"></div></div>
   </main>
 </div>
+
+<div class="paste-note" id="paste-note" hidden></div>
 
 <div class="lightbox" id="lightbox" hidden>
   <div class="lb-bar"><span class="lb-name"></span><button type="button" class="lb-close" title="닫기 (Esc)">×</button></div>
@@ -1775,7 +1780,9 @@
     return { title: m[1].trim(), key: m[2].replace('♭', 'b').replace('♯', '#') };
   }
 
-  async function addImages(song, files, onStatus) {
+  // useName: 파일 이름에서 제목·키를 가져올지. 고른 파일은 `제목 - 키.png` 라 쓸모가 있지만,
+  // 붙여넣은 그림은 이름이 screenshot.png, image.png 라서 그대로 두면 곡 제목이 그렇게 된다.
+  async function addImages(song, files, onStatus, useName = true) {
     const added = [];
     for (const f of [...files]) {
       try {
@@ -1783,8 +1790,8 @@
         if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) added.push(...await pdfToImages(f, onStatus));
         else if (isImageFile(f)) {
           const im = await fileToImage(f);
-          if (meta.key && KEYS.includes(meta.key)) im.keyFrom = meta.key;
-          im.fromName = meta.title;
+          if (useName && meta.key && KEYS.includes(meta.key)) im.keyFrom = meta.key;
+          if (useName) im.fromName = meta.title;
           added.push(im);
         }
       } catch (e) { alert('파일을 읽지 못했습니다: ' + f.name); }
@@ -2508,8 +2515,8 @@
       $('.title-input', el).addEventListener('input', e => { song.title = e.target.value; syncSheetMeta(song); renderPreview(); scheduleSave(); });
       $('textarea', el).addEventListener('input', e => { song.form = e.target.value; syncSheetMeta(song); renderPreview(); scheduleSave(); });
       $('textarea', el).addEventListener('paste', e => {
-        const files = [...(e.clipboardData?.files || [])];
-        if (files.length) { e.preventDefault(); addImages(song, files); }
+        const files = imagesInClipboard(e.clipboardData);
+        if (files.length) { e.preventDefault(); addImages(song, files, null, false); }
       });
       // direct child only — the crop panel has a join checkbox of its own, for a single sheet
       const join = $(':scope > .join input', el);
@@ -2731,6 +2738,47 @@
   $('#lib').addEventListener('toggle', () => { if ($('#lib').open) renderLibrary(); });
   $('.lb-close').addEventListener('click', closeSheetView);
   $('#lightbox').addEventListener('click', e => { if (e.target.tagName !== 'IMG') closeSheetView(); });
+  // 붙여넣기로 들어온 그림들. 화면 캡처는 clipboardData.files 에 오지만, 웹페이지에서 "이미지
+  // 복사"로 온 것은 items 에만 있는 경우가 있어서 둘 다 본다.
+  function imagesInClipboard(cd) {
+    if (!cd) return [];
+    const out = [...(cd.files || [])].filter(f => isImageFile(f) || f.type === 'application/pdf');
+    if (out.length) return out;
+    return [...(cd.items || [])]
+      .filter(it => it.kind === 'file' && (it.type.startsWith('image/') || it.type === 'application/pdf'))
+      .map(it => it.getAsFile())
+      .filter(Boolean);
+  }
+  // 어느 곡에 넣을지: 지금 손대고 있는 곡 카드가 있으면 그 곡, 없으면 맨 끝 곡이다.
+  // 붙여넣을 때마다 어디로 갔는지 알려 준다 — 말없이 사라지면 안 넣어진 줄 안다.
+  function songForPaste() {
+    const card = document.activeElement?.closest?.('.song');
+    if (card) {
+      const k = [...document.querySelectorAll('#songs .song')].indexOf(card);
+      if (k >= 0 && state.songs[k]) return state.songs[k];
+    }
+    if (cropTarget) { const hit = state.songs.find(s2 => s2.id === cropTarget.songId); if (hit) return hit; }
+    return state.songs[state.songs.length - 1] || null;
+  }
+  document.addEventListener('paste', async e => {
+    if (!$('#lightbox').hidden) return;
+    const files = imagesInClipboard(e.clipboardData);
+    if (!files.length) return;                     // 글자 붙여넣기는 그대로 둔다
+    if (e.target.closest?.('.song textarea')) return;   // 곡 카드 안은 그쪽 처리기가 맡는다
+    const song = songForPaste();
+    if (!song) return;
+    e.preventDefault();
+    if (song.folded) { song.folded = false; renderEditor(); }
+    const note = $('#paste-note');
+    // 조사가 붙는 이름 대신 번호로 말한다 — 곡 제목이 무엇이든 문장이 자연스럽다
+    const n = state.songs.indexOf(song) + 1;
+    const where = `${n}번 곡${song.title ? ` ${song.title}` : ''}`;
+    note.textContent = `${where}에 넣는 중…`;
+    note.hidden = false;
+    await addImages(song, files, t => { note.textContent = t; }, false);
+    note.textContent = `${where}에 악보 ${files.length}장을 넣었습니다.`;
+    setTimeout(() => { note.hidden = true; }, 4000);
+  });
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#lightbox').hidden) closeSheetView(); });
   $('#undo').addEventListener('click', () => stepHistory(past, future));
   $('#redo').addEventListener('click', () => stepHistory(future, past));
