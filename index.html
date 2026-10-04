@@ -390,10 +390,18 @@
     .app { display: block; }
     .preview { padding: 0; }
     .fit { transform: none !important; height: auto !important; width: auto !important; margin: 0 !important; }
+    /* Printing must use normal block flow: WebKit can fragment fixed-height flex pages
+       into an extra empty sheet even when their content fits. */
+    html, body { width: 210mm; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+    .app, .preview, .fit, .pages { width: 210mm !important; }
     .pages { display: block; }
-    /* Leave 1mm for print-engine rounding; start each subsequent sheet on a new page. */
-    .page { height: 296mm; box-shadow: none; margin: 0; page-break-inside: avoid; break-inside: avoid; }
+    .page { display: block; height: auto; min-height: 0; overflow: visible; box-shadow: none; margin: 0; page-break-inside: avoid; break-inside: avoid; }
     .page + .page { page-break-before: always; break-before: page; }
+    .block { display: block; }
+    .block + .block { margin-top: 4mm; }
+    .form-bar { margin-bottom: 4mm; }
+    .sheet { display: block; overflow: hidden; }
+    .sheet img { margin: 0 auto; }
     .sheet .placeholder { display: none; }
   }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
@@ -1671,11 +1679,13 @@
       if (!blocks.length) return;
       const ps = getComputedStyle(page);
       const W = page.clientWidth - parseFloat(ps.paddingLeft) - parseFloat(ps.paddingRight);
-      const H = page.clientHeight - parseFloat(ps.paddingTop) - parseFloat(ps.paddingBottom);
-      let chrome = (parseFloat(ps.rowGap) || 0) * (blocks.length - 1);
+      // Fixed A4 content budget, independent of print auto-height; reserve 1mm for rounding.
+      const H = W * 275 / 188;
+      const blockGap = parseFloat(ps.rowGap) || (blocks.length > 1 ? parseFloat(getComputedStyle(blocks[1]).marginTop) : 0) || 0;
+      let chrome = blockGap * (blocks.length - 1);
       const need = blocks.map(b => {
         const bar = b.querySelector('.form-bar');   // absent when this sheet shares the bar above it
-        if (bar) chrome += bar.offsetHeight + (parseFloat(getComputedStyle(b).rowGap) || 0);
+        if (bar) chrome += bar.offsetHeight + (parseFloat(getComputedStyle(b).rowGap) || parseFloat(getComputedStyle(bar).marginBottom) || 0);
         return (+b.dataset.ratio || 1.4) * (+b.dataset.scale || 1);
       });
       const sum = need.reduce((a, n) => a + n, 0) || 1;
