@@ -369,7 +369,7 @@
      wrapped on its own, which tore "V-C-V-C-B-{C(목소리)}" into interleaved pieces */
   /* min-width:0 — a grid track is auto-minimum by default, so a long form would widen the bar past
      the page instead of wrapping (and would hide overflow from the fitting measurement) */
-  .form-bar .txt { display: block; align-self: center; min-width: 0; font-family: var(--font-form); font-weight: 700; font-size: 21pt; text-align: center; padding: 1mm 4mm; line-height: 1.25; letter-spacing: .01em; word-break: keep-all; text-wrap: balance; }
+  .form-bar .txt { display: block; align-self: center; min-width: 0; font-family: var(--font-form); font-weight: 700; font-size: 21pt; text-align: center; padding: 1mm 4mm; line-height: 1.25; letter-spacing: .01em; word-break: keep-all; white-space: nowrap; }
   .form-bar .txt .sec { white-space: nowrap; }   /* a section never splits from its (note) */
   .form-bar .txt .r { color: var(--red); }
   .form-bar .txt .p { font-size: .62em; font-weight: 600; }
@@ -1706,27 +1706,27 @@
       : `인쇄 폭 ${pct}%.` + (shared ? ' 같은 페이지의 악보를 더 잘라내면 둘 다 커집니다.' : ' 위·아래를 더 잘라내면 커집니다.');
   }
 
-  // Keep forms readable: prefer up to two lines over squeezing everything onto one line.
-  const FORM_PT = [21, 19, 17, 15];
+  // Keep one line and find the largest fitting size, to 0.1pt rather than coarse size steps.
+  const FORM_MAX_PT = 21;
   function fitFormBars(root) {
     root.querySelectorAll('.form-bar .txt').forEach(el => {
       if (el.querySelector('.ph')) { el.style.fontSize = ''; return; }
-      const sections = [...el.querySelectorAll('.sec')];
-      sections.forEach(sec => { sec.style.whiteSpace = ''; sec.style.overflowWrap = ''; });
       const keep = el.style.overflow;
       el.style.overflow = 'hidden';
-      for (const pt of FORM_PT) {
+      const fits = pt => {
         el.style.fontSize = pt + 'pt';
-        const cs = getComputedStyle(el);
-        const inner = el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
-        const fitsLines = inner <= parseFloat(cs.lineHeight) * 2 + 1;
-        const fitsWide = el.scrollWidth <= el.clientWidth + 1;
-        if (fitsLines && fitsWide) break;
+        return el.scrollWidth <= el.clientWidth;
+      };
+      let low = 0.1, high = FORM_MAX_PT;
+      if (fits(high)) low = high;
+      else {
+        while (high - low > 0.05) {
+          const mid = (low + high) / 2;
+          if (fits(mid)) low = mid;
+          else high = mid;
+        }
       }
-      // An unusually long single section must wrap rather than force tiny text or overflow.
-      if (el.scrollWidth > el.clientWidth + 1) {
-        sections.forEach(sec => { sec.style.whiteSpace = 'normal'; sec.style.overflowWrap = 'anywhere'; });
-      }
+      el.style.fontSize = (Math.floor(low * 10) / 10) + 'pt';
       el.style.overflow = keep;
     });
   }
