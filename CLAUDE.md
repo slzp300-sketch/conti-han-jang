@@ -186,3 +186,10 @@ Covenant 청년부 찬양팀이 매주 쓰는 A4 찬양 콘티 편집기다. 서
 - 인쇄 시 page·block·sheet는 일반 block 배치로 전환하고 page의 고정 높이와 overflow:hidden을 제거한다. 내용 높이만 출력하고 다음 page 앞에서 쪽을 나눈다.
 - fitSheets의 내용 높이는 자동 높이에서 재측정하지 않고 A4 기준 275mm로 계산한다. print의 margin과 화면의 gap을 모두 계산하여 1mm 여유를 유지한다.
 - node dev/print-layout-test.mjs로 실제 앱 인쇄 CSS를 사용하는 6가지 배치 테스트를 생성한다. 긴 악보·두 곡·같은 곡 두 장 모두 A4 안에 들어감 확인. 이 검사는 레이아웃 검사이며 iOS 실제 PDF 페이지 수 확인을 대체하지 않는다.
+
+## 송폼 전체 폭 측정 (2026-10-04 사진 피드백)
+
+- 중앙 정렬된 칸의 scrollWidth 대신 .form-content(inline-block, nowrap)의 offsetWidth로 글자 전체 폭을 잰다. 칸 padding과 1px 여유를 빼고 0.1pt 정수 이진 탐색으로 최대 크기를 선택한다.
+- 전역 text-size-adjust:100%로 모바일 자동 글씨 확대를 억제하고, 그리드 열은 minmax(0,1fr)로 제한한다. overflow:hidden은 안전장치이며 실제 폭 측정으로 모든 문구가 들어가는지 검증한다.
+- 인쇄 버튼은 document.fonts.ready를 기다리고, loadingdone에서 송폼·악보 크기를 다시 맞춘다.
+- 사진의 두 송폼을 로컬 앱에서 검증: 각각 19.9pt, 16.1pt로 칸 안에 한 줄 표시. 회귀 도구는 칸 안 맞춤과 0.1pt 증가 시 넘침(최대 크기)을 추가 검증한다.

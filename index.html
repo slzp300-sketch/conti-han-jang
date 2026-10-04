@@ -48,7 +48,7 @@
   }
 
   * { box-sizing: border-box; }
-  html { height: 100%; }
+  html { height: 100%; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   body { margin: 0; min-height: 100%; background: var(--bg); color: var(--ink); font-family: var(--font-ui); font-size: 14px; line-height: 1.5; }
   button { font: inherit; cursor: pointer; color: inherit; }
   button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -363,13 +363,14 @@
     padding: 11mm 11mm 10mm; display: flex; flex-direction: column; gap: 4mm; flex-shrink: 0; overflow: hidden;
     scroll-margin-top: 70px;   /* the sticky topbar sits over the top of the preview */
   }
-  .form-bar { display: grid; grid-template-columns: 28mm 1fr; border: 0.6mm solid #000; min-height: 14mm; }
+  .form-bar { display: grid; grid-template-columns: 28mm minmax(0, 1fr); border: 0.6mm solid #000; min-height: 14mm; overflow: hidden; }
   .form-bar .lab { display: flex; align-items: center; justify-content: center; font-family: var(--font-form); font-weight: 600; font-size: 12pt; letter-spacing: .02em; border-right: 0.6mm solid #000; background: #fff; }
   /* block, not flex: as a flex container every text run and every <span> became its own item and
      wrapped on its own, which tore "V-C-V-C-B-{C(목소리)}" into interleaved pieces */
   /* min-width:0 — a grid track is auto-minimum by default, so a long form would widen the bar past
      the page instead of wrapping (and would hide overflow from the fitting measurement) */
-  .form-bar .txt { display: block; align-self: center; min-width: 0; font-family: var(--font-form); font-weight: 700; font-size: 21pt; text-align: center; padding: 1mm 4mm; line-height: 1.25; letter-spacing: .01em; word-break: keep-all; white-space: nowrap; }
+  .form-bar .txt { display: block; align-self: center; min-width: 0; font-family: var(--font-form); font-weight: 700; font-size: 21pt; text-align: center; padding: 1mm 4mm; line-height: 1.25; letter-spacing: .01em; word-break: keep-all; white-space: nowrap; overflow: hidden; }
+  .form-bar .form-content { display: inline-block; white-space: nowrap; }
   .form-bar .txt .sec { white-space: nowrap; }   /* a section never splits from its (note) */
   .form-bar .txt .r { color: var(--red); }
   .form-bar .txt .p { font-size: .62em; font-weight: 600; }
@@ -1721,23 +1722,21 @@
   function fitFormBars(root) {
     root.querySelectorAll('.form-bar .txt').forEach(el => {
       if (el.querySelector('.ph')) { el.style.fontSize = ''; return; }
-      const keep = el.style.overflow;
-      el.style.overflow = 'hidden';
+      const content = el.querySelector('.form-content');
+      if (!content || !el.clientWidth) return;
+      const cs = getComputedStyle(el);
+      const available = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - 1;
       const fits = pt => {
         el.style.fontSize = pt + 'pt';
-        return el.scrollWidth <= el.clientWidth;
+        return content.offsetWidth <= available;
       };
-      let low = 0.1, high = FORM_MAX_PT;
-      if (fits(high)) low = high;
-      else {
-        while (high - low > 0.05) {
-          const mid = (low + high) / 2;
-          if (fits(mid)) low = mid;
-          else high = mid;
-        }
+      let low = 1, high = FORM_MAX_PT * 10;
+      while (low < high) {
+        const mid = Math.ceil((low + high) / 2);
+        if (fits(mid / 10)) low = mid;
+        else high = mid - 1;
       }
-      el.style.fontSize = (Math.floor(low * 10) / 10) + 'pt';
-      el.style.overflow = keep;
+      el.style.fontSize = (low / 10) + 'pt';
     });
   }
   // ---------- image intake ----------
@@ -2667,7 +2666,7 @@
         b.innerHTML = `
           ${sameSongAbove ? '' : `<div class="form-bar">
             <div class="lab">Song Form</div>
-            <div class="txt">${renderForm(song.form)}</div>
+            <div class="txt"><span class="form-content">${renderForm(song.form)}</span></div>
           </div>`}
           <div class="sheet">${(!sameSongAbove && song.key) ? `<span class="song-key-tag">${escapeHtml(pretty(song.key))}</span>` : ''}${sheet}</div>`;
         p.appendChild(b);

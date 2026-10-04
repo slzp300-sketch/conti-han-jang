@@ -6,7 +6,7 @@ const css = app.match(/<style>([\s\S]*?)<\/style>/)[1].replace('@media print', '
 const sheets = app.slice(app.indexOf('  function fitSheets(root)'), app.indexOf('  // tell the open crop panel'));
 const forms = app.slice(app.indexOf('  const FORM_MAX_PT'), app.indexOf('  // ---------- image intake ----------'));
 const image = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1400"><rect width="800" height="1400" fill="white"/><path d="M20 100H780M20 350H780M20 600H780M20 850H780M20 1100H780M20 1350H780" stroke="black" stroke-width="4"/></svg>');
-const bar = '<div class="form-bar"><div class="lab">Song Form</div><div class="txt">V-C-V-C-B-C</div></div>';
+const bar = '<div class="form-bar"><div class="lab">Song Form</div><div class="txt"><span class="form-content">C1-C2-T<span class="p">(8마디)</span>-V-V-C1-C1-<span class="r"><span class="p">(key up)</span>C2</span>-다음곡-C-C</span></div></div>';
 const block = (ratio, withBar = true) => `<div class="block" data-ratio="${ratio}" data-scale="1">${withBar ? bar : ''}<div class="sheet"><img src="${image}" style="aspect-ratio:1/${ratio}"></div></div>`;
 const pages = [block(1.75), block(2.5), block(1.75) + block(1.75), block(1.75) + block(1.75, false), block(.5), block(3)].map(b => `<article class="page">${b}</article>`).join('');
 const js = sheets + forms + `
@@ -21,7 +21,16 @@ window.printLayoutResult = [...root.children].map(page => {
     breakBefore: getComputedStyle(page).breakBefore };
 });
 window.printLayoutPass = printLayoutResult.length === 6 && printLayoutResult.every((r,i) => r.a4Fits && r.contentFits && r.display === 'block' && (!i || r.breakBefore === 'page'));
-document.title = printLayoutPass ? 'PASS: 6 print layouts' : 'FAIL: print layout';
+const formResults = [...root.querySelectorAll('.txt')].map(el => {
+  const cs = getComputedStyle(el), content = el.querySelector('.form-content');
+  const available = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - 1;
+  const pt = parseFloat(el.style.fontSize), fits = content.offsetWidth <= available;
+  el.style.fontSize = (pt + .1) + 'pt';
+  const largest = pt === FORM_MAX_PT || content.offsetWidth > available;
+  el.style.fontSize = pt + 'pt';
+  return fits && largest && el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) <= parseFloat(cs.lineHeight) + 1;
+});
+document.title = printLayoutPass && formResults.every(Boolean) ? 'PASS: print layouts and maximum single-line forms' : 'FAIL: print layout or forms';
 `;
 await writeFile(new URL('print-layout-test.html', import.meta.url), `<!doctype html><meta charset="utf-8"><style>${css}</style><div class="app"><section class="preview"><div class="fit"><div class="pages">${pages}</div></div></section></div><script>${js}</script>`);
-console.log('Open http://localhost:5173/dev/print-layout-test.html — title must say PASS: 6 print layouts');
+console.log('Open http://localhost:5173/dev/print-layout-test.html — title must say PASS: print layouts and maximum single-line forms');
