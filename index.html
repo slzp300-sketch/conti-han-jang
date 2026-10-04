@@ -385,14 +385,15 @@
 
   @media print {
     @page { size: A4 portrait; margin: 0; }
-    body { background: #fff; }
+    html, body { height: auto; min-height: 0; margin: 0; background: #fff; }
     .topbar, .editor, .preview-head, .empty, .lightbox { display: none !important; }
     .app { display: block; }
     .preview { padding: 0; }
-    .fit { transform: none !important; height: auto !important; }
+    .fit { transform: none !important; height: auto !important; width: auto !important; margin: 0 !important; }
     .pages { display: block; }
-    .page { box-shadow: none; margin: 0; page-break-after: always; break-after: page; }
-    .page:last-child { page-break-after: auto; break-after: auto; }
+    /* Leave 1mm for print-engine rounding; start each subsequent sheet on a new page. */
+    .page { height: 296mm; box-shadow: none; margin: 0; page-break-inside: avoid; break-inside: avoid; }
+    .page + .page { page-break-before: always; break-before: page; }
     .sheet .placeholder { display: none; }
   }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
@@ -1705,31 +1706,30 @@
       : `인쇄 폭 ${pct}%.` + (shared ? ' 같은 페이지의 악보를 더 잘라내면 둘 다 커집니다.' : ' 위·아래를 더 잘라내면 커집니다.');
   }
 
-  // 아주 긴 송폼도 칸 안에 들어가도록 아래쪽을 넓혔다. 11pt 에서 멈추면 그 아래는 칸을 넘친다.
-  const FORM_PT = [21, 19, 17, 15, 13, 11, 10, 9, 8];
+  // Keep forms readable: prefer up to two lines over squeezing everything onto one line.
+  const FORM_PT = [21, 19, 17, 15];
   function fitFormBars(root) {
     root.querySelectorAll('.form-bar .txt').forEach(el => {
       if (el.querySelector('.ph')) { el.style.fontSize = ''; return; }
-      // Ask the layout how many lines it actually took rather than predicting the width: predicting
-      // lands wrong right at the boundary, and the preview's scale skews any rect-based guess.
-      // clientHeight and line-height are both unscaled CSS pixels, so this stays honest.
-      // 줄 수만 보면 가로로 넘치는 경우를 놓친다. 끊기지 않는 구획(`.sec`)이 칸보다 넓으면
-      // 한 줄이면서 옆으로 삐져나간다. scrollWidth 는 overflow:visible 일 때 넘친 폭을
-      // 돌려주지 않으므로, 재는 동안만 hidden 으로 두고 끝나면 되돌린다.
+      const sections = [...el.querySelectorAll('.sec')];
+      sections.forEach(sec => { sec.style.whiteSpace = ''; sec.style.overflowWrap = ''; });
       const keep = el.style.overflow;
       el.style.overflow = 'hidden';
       for (const pt of FORM_PT) {
         el.style.fontSize = pt + 'pt';
         const cs = getComputedStyle(el);
         const inner = el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
-        const oneLine = inner <= parseFloat(cs.lineHeight) * 1.5;
+        const fitsLines = inner <= parseFloat(cs.lineHeight) * 2 + 1;
         const fitsWide = el.scrollWidth <= el.clientWidth + 1;
-        if (oneLine && fitsWide) break;
+        if (fitsLines && fitsWide) break;
+      }
+      // An unusually long single section must wrap rather than force tiny text or overflow.
+      if (el.scrollWidth > el.clientWidth + 1) {
+        sections.forEach(sec => { sec.style.whiteSpace = 'normal'; sec.style.overflowWrap = 'anywhere'; });
       }
       el.style.overflow = keep;
     });
   }
-
   // ---------- image intake ----------
   // image = { src, w, h, top, bottom }  (top/bottom: % of height trimmed away)
   // 줄일 필요가 없으면 **파일 바이트를 그대로 쓴다.** 예전에는 무조건 JPEG 0.9 로 다시 구웠는데,
@@ -2692,6 +2692,8 @@
     fit.style.height = pages.scrollHeight * s + 'px';
   }
   window.addEventListener('resize', fitPages);
+  window.addEventListener('beforeprint', () => { const w = document.querySelector('#pages'); fitFormBars(w); fitSheets(w); });
+  window.addEventListener('afterprint', () => { const w = document.querySelector('#pages'); fitFormBars(w); fitSheets(w); fitPages(); });
 
   // ---------- top-level controls ----------
   $('#conti-title').addEventListener('input', e => { state.title = e.target.value; renderPreview(); scheduleSave(); });
