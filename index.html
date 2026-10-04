@@ -66,6 +66,8 @@
   .saved { font-size: 12px; color: var(--muted); font-family: var(--font-mono); white-space: nowrap; }
   .saved:not(:empty)::before { content: '●'; color: var(--accent); font-size: 8px; margin-right: 6px; vertical-align: 1px; }
   .topbar .btn { padding: 7px 14px; }
+  #pdf-result { text-decoration: none; }
+  #pdf-result[hidden] { display: none; }
 
   /* ---------- layout ---------- */
   .app { display: grid; grid-template-columns: minmax(320px, 420px) 1fr; align-items: start; }
@@ -78,6 +80,7 @@
     .app { grid-template-columns: 1fr; }
     .editor { position: static; max-height: none; border-right: 0; border-bottom: 1px solid var(--line); }
     .brand small { display: none; }
+    .topbar { flex-wrap: wrap; }
   }
 
   /* ---------- fields & buttons ---------- */
@@ -416,7 +419,8 @@
   <button class="btn quiet" id="undo" title="되돌리기 (Ctrl+Z)" disabled>↶</button>
   <button class="btn quiet" id="redo" title="다시 실행 (Ctrl+Shift+Z)" disabled>↷</button>
   <button class="btn" id="new-conti" title="지금 콘티는 보관함에 남고, 빈 콘티를 새로 엽니다">＋ 새 콘티</button>
-  <button class="btn primary" id="print">인쇄 / PDF 저장</button>
+  <button class="btn primary" id="print">PDF 저장 / 인쇄</button>
+  <a class="btn" id="pdf-result" hidden target="_blank" rel="noopener">PDF 열기 / 인쇄</a>
 </header>
 
 <div class="app">
@@ -485,7 +489,7 @@
         <dt>단축키</dt>
         <dd><code>Ctrl+Z</code> 되돌리기 · <code>Ctrl+Shift+Z</code> 다시 실행. 곡 카드의 <b>▾</b> 접기, <b>⧉</b> 복제. 미리보기 위 <b>‹ ›</b> 쪽 넘기기.</dd>
         <dt>보관·PDF</dt>
-        <dd>고칠 때마다 <b>이 브라우저에만</b> 자동 저장됩니다. PC와 폰은 각각 따로예요. 인쇄 창에서 "PDF로 저장"을 고르면 PDF가 됩니다.</dd>
+        <dd>고칠 때마다 <b>이 브라우저에만</b> 자동 저장됩니다. PC와 폰은 각각 따로예요. PDF 저장 / 인쇄를 누르면 미리보기와 같은 PDF가 만들어집니다. PDF 열기 / 인쇄에서 파일을 열고 공유하거나 인쇄하세요.</dd>
         <dt>보관함 옮기기</dt>
         <dd>악보 보관함의 <b>내보내기</b>로 파일 하나를 받아, 다른 기기에서 <b>가져오기</b>로 넣습니다. 백업으로도 쓰세요.</dd>
       </dl>
@@ -2714,10 +2718,35 @@
     const last = state.songs[state.songs.length - 1];
     $('#form-' + last.id)?.focus();
   });
+  let pdfUrl = null;
   $('#print').addEventListener('click', async () => {
-    await document.fonts?.ready;
-    const w = document.querySelector('#pages'); fitFormBars(w); fitSheets(w);
-    recordForms('인쇄'); window.print();
+    const button = $('#print'), label = button.textContent, link = $('#pdf-result');
+    button.disabled = true; link.hidden = true;
+    try {
+      button.textContent = '악보 준비 중…';
+      await document.fonts?.ready;
+      await Promise.all(state.songs.flatMap(song => song.images).map(im => new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('악보 준비가 지연되고 있습니다. 잠시 후 다시 시도해 주세요.')), 15000);
+        const ready = () => { clearTimeout(timer); resolve(); };
+        if (croppedSrc(im, ready)) ready();
+      })));
+      renderPreview();
+      const pages = [...$('#pages').querySelectorAll('.page')];
+      if (!window.ContiPDF) await loadScript('/pdf-export.js');
+      const blob = await window.ContiPDF.create(pages, (n, total) => {
+        button.textContent = `PDF 만드는 중 ${n}/${total}쪽`;
+      });
+      if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+      pdfUrl = URL.createObjectURL(blob);
+      const name = (state.title || '콘티').replace(/[\\/:*?"<>|]/g, '_') + '.pdf';
+      link.href = pdfUrl; link.textContent = `PDF 열기 / 인쇄 (${pages.length}쪽)`; link.hidden = false;
+      const download = document.createElement('a');
+      download.href = pdfUrl; download.download = name;
+      document.body.appendChild(download); download.click(); download.remove();
+      recordForms('PDF 저장');
+    } catch (e) {
+      alert(e.message || 'PDF를 만들지 못했습니다. 다시 시도해 주세요.');
+    } finally { button.disabled = false; button.textContent = label; }
   });
   document.fonts?.addEventListener('loadingdone', () => {
     const w = document.querySelector('#pages'); fitFormBars(w); fitSheets(w); fitPages();
