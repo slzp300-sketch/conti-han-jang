@@ -2714,7 +2714,14 @@
     const last = state.songs[state.songs.length - 1];
     $('#form-' + last.id)?.focus();
   });
-  $('#print').addEventListener('click', () => { recordForms('인쇄'); window.print(); });
+  $('#print').addEventListener('click', async () => {
+    await document.fonts?.ready;
+    const w = document.querySelector('#pages'); fitFormBars(w); fitSheets(w);
+    recordForms('인쇄'); window.print();
+  });
+  document.fonts?.addEventListener('loadingdone', () => {
+    const w = document.querySelector('#pages'); fitFormBars(w); fitSheets(w); fitPages();
+  });
   $('#clear').addEventListener('click', () => {
     if (!confirm('이 콘티의 곡과 악보를 모두 지울까요? (보관함의 다른 콘티는 그대로입니다)')) return;
     state.songs = [newSong()]; cropTarget = null;
